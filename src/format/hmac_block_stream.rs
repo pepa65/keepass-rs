@@ -3,7 +3,15 @@ use hex_literal::hex;
 use hybrid_array::{typenum::U64, Array as GenericArray};
 use thiserror::Error;
 
+use crate::crypt::{sha512_key, Key512};
+
 pub const HMAC_KEY_END: [u8; 1] = hex!("01");
+
+pub(crate) fn get_hmac_block_key(block_index: u64, key: &GenericArray<u8, U64>) -> Key512 {
+    let mut buf = [0u8; 8];
+    LittleEndian::write_u64(&mut buf, block_index);
+    sha512_key(&[&buf, key])
+}
 
 /// Read from a HMAC block stream into a raw buffer
 pub(crate) fn read_hmac_block_stream(
@@ -101,12 +109,6 @@ pub(crate) fn write_hmac_block_stream(data: &[u8], key: &GenericArray<u8, U64>) 
     out.extend_from_slice(&size_bytes);
 
     out
-}
-
-pub(crate) fn get_hmac_block_key(block_index: u64, key: &GenericArray<u8, U64>) -> GenericArray<u8, U64> {
-    let mut buf = [0u8; 8];
-    LittleEndian::write_u64(&mut buf, block_index);
-    crate::crypt::calculate_sha512(&[&buf, key])
 }
 
 /// Errors reading from the HMAC block stream

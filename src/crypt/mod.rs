@@ -11,9 +11,38 @@ use hmac::{Hmac, Mac};
 use sha1::Sha1;
 use sha2::{Digest, Sha256, Sha512};
 use thiserror::Error;
+use zeroize::{Zeroize, Zeroizing};
 
 pub(crate) mod ciphers;
 pub(crate) mod kdf;
+
+pub(crate) type Key256 = Zeroizing<GenericArray<u8, U32>>;
+pub(crate) type Key512 = Zeroizing<GenericArray<u8, U64>>;
+
+pub(crate) fn sha256_key(elements: &[&[u8]]) -> Key256 {
+    Zeroizing::new(calculate_sha256(elements))
+}
+
+pub(crate) fn sha512_key(elements: &[&[u8]]) -> Key512 {
+    Zeroizing::new(calculate_sha512(elements))
+}
+
+/// SHA-256 over `elements`, returned as a self-wiping Vec. The temporary
+/// digest array is wiped before returning.
+pub(crate) fn sha256_element(elements: &[&[u8]]) -> Zeroizing<Vec<u8>> {
+    let mut digest = calculate_sha256(elements);
+    let out = Zeroizing::new(digest.to_vec());
+    digest.as_mut_slice().zeroize();
+    out
+}
+
+#[cfg(feature = "challenge_response")]
+pub(crate) fn hmac_sha1_element(elements: &[&[u8]], key: &[u8]) -> Result<Zeroizing<Vec<u8>>, InvalidLength> {
+    let mut digest = calculate_hmac_sha1(elements, key)?;
+    let out = Zeroizing::new(digest.to_vec());
+    digest.as_mut_slice().zeroize();
+    Ok(out)
+}
 
 pub(crate) fn calculate_hmac(elements: &[&[u8]], key: &[u8]) -> Result<GenericArray<u8, U32>, InvalidLength> {
     type HmacSha256 = Hmac<Sha256>;

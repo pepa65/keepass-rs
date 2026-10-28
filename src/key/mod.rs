@@ -3,11 +3,11 @@ use std::io::Read;
 use base64::{engine::general_purpose as base64_engine, Engine as _};
 use quick_xml::{encoding::EncodingError, events::Event, reader::Reader, XmlVersion};
 use thiserror::Error;
-use zeroize::{Zeroize, ZeroizeOnDrop};
+use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
-use crate::crypt::calculate_sha256;
+use crate::crypt::sha256_element;
 
-pub type KeyElement = Vec<u8>;
+pub type KeyElement = Zeroizing<Vec<u8>>;
 pub type KeyElements = Vec<KeyElement>;
 
 #[cfg(feature = "challenge_response")]
@@ -18,16 +18,12 @@ pub use yubikey::{ChallengeResponseKey, ChallengeResponseKeyError};
 
 fn parse_xml_keyfile(xml: &[u8]) -> Result<KeyElement, ParseXmlKeyFileError> {
     let mut tag_stack = Vec::new();
-
     let mut key_version: Option<String> = None;
-    let mut key_value: Option<String> = None;
-
+    let mut key_value: Option<Zeroizing<String>> = None;
     let mut reader = Reader::from_reader(xml);
-    let mut buf = Vec::new();
     let mut xml_version = XmlVersion::Implicit1_0;
-
     loop {
-        match reader.read_event_into(&mut buf)? {
+        match reader.read_event()? {
             Event::Eof => break,
 
             Event::Decl(e) => {
@@ -43,10 +39,10 @@ fn parse_xml_keyfile(xml: &[u8]) -> Result<KeyElement, ParseXmlKeyFileError> {
             }
 
             Event::Text(e) => {
-                let s = e.xml_content(xml_version).into_owned();
+                let s = Zeroizing::new(e.xml_content(xml_version).into_owned());
 
                 if tag_stack == ["KeyFile", "Meta", "Version"] {
-                    key_version = Some(s);
+                    key_version = Some(s.to_string());
                     continue;
                 }
 
@@ -62,30 +58,24 @@ fn parse_xml_keyfile(xml: &[u8]) -> Result<KeyElement, ParseXmlKeyFileError> {
 
     let key_value = key_value.ok_or(ParseXmlKeyFileError::EmptyKey)?;
 
-    let key_bytes = key_value.as_bytes().to_vec();
-
-    if key_version == Some("2.0".to_string()) {
-        // TODO we should also validate the integrity of a v2 keyfile using the hash value
-
-        let trimmed_key = key_value
-            .trim()
-            .replace(" ", "")
-            .replace("\n", "")
-            .replace("\t", "")
-            .replace("\r", "");
-
-        return if let Ok(key) = hex::decode(&trimmed_key) {
-            Ok(key)
-        } else {
-            Ok(key_bytes)
-        };
+    if key_version.as_deref() == Some("2.0") {
+        // TODO validate hash
+        let mut trimmed_key = Zeroizing::new(String::with_capacity(key_value.len()));
+        for c in key_value.trim().chars() {
+            if !matches!(c, ' ' | '\n' | '\t' | '\r') {
+                trimmed_key.push(c);
+            }
+        }
+        if let Ok(key) = hex::decode(trimmed_key.as_bytes()) {
+            return Ok(key.into());
+        }
+        return Ok(key_value.as_bytes().to_vec().into());
     }
 
-    // Check if the key is base64-encoded. If yes, return decoded bytes
-    if let Ok(key) = base64_engine::STANDARD.decode(&key_bytes) {
-        Ok(key)
+    if let Ok(key) = base64_engine::STANDARD.decode(key_value.as_bytes()) {
+        Ok(key.into())
     } else {
-        Ok(key_bytes)
+        Ok(key_value.as_bytes().to_vec().into())
     }
 }
 
@@ -114,25 +104,23 @@ fn parse_keyfile(buffer: &[u8]) -> Result<KeyElement, DatabaseKeyError> {
 
     // legacy binary key format
     if buffer.len() == 32 {
-        return Ok(buffer.to_vec());
+        return Ok(buffer.to_vec().into());
     }
 
     // legacy hex key format
     if buffer.len() == 64 {
         if let Ok(key_bytes) = hex::decode(buffer) {
-            return Ok(key_bytes);
+            return Ok(key_bytes.into());
         }
     }
-
-    // interpret as a "bare" keyfile and hash the entire file contents
-    Ok(calculate_sha256(&[buffer]).as_slice().to_vec())
+    Ok(sha256_element(&[buffer]))
 }
 
 /// A KeePass key, which might consist of a password and/or a keyfile
 #[derive(Debug, Clone, Default, PartialEq, Zeroize, ZeroizeOnDrop)]
 pub struct DatabaseKey {
-    password: Option<String>,
-    keyfile: Option<Vec<u8>>,
+    password: Option<Zeroizing<String>>,
+    keyfile: Option<Zeroizing<Vec<u8>>>,
     #[cfg(feature = "challenge_response")]
     challenge_response_key: Option<ChallengeResponseKey>,
     #[cfg(feature = "challenge_response")]
@@ -142,14 +130,14 @@ pub struct DatabaseKey {
 impl DatabaseKey {
     /// Modify the database key to include a password
     pub fn with_password(mut self, password: &str) -> Self {
-        self.password = Some(password.to_string());
+        self.password = Some(password.to_string().into());
         self
     }
 
     /// Modify the database key to include a password, which is read from a prompt
     #[cfg(feature = "utilities")]
     pub fn with_password_from_prompt(mut self, prompt_message: &str) -> Result<Self, std::io::Error> {
-        self.password = Some(rpassword::prompt_password(prompt_message)?);
+        self.password = Some(Zeroizing::new(rpassword::prompt_password(prompt_message)?));
         Ok(self)
     }
 
@@ -169,11 +157,24 @@ impl DatabaseKey {
     /// requested, so errors with keyfile parsing will only be raised at that point, not when
     /// calling this method.
     pub fn with_keyfile(mut self, keyfile: &mut dyn Read) -> Result<Self, std::io::Error> {
-        let mut buf = Vec::new();
-        keyfile.read_to_end(&mut buf)?;
-
-        self.keyfile = Some(buf);
-
+        let mut out: Zeroizing<Vec<u8>> = Vec::with_capacity(4096).into();
+        let mut chunk = Zeroizing::new([0u8; 4096]);
+        loop {
+            let n = match keyfile.read(&mut *chunk) {
+                Ok(0) => break,
+                Ok(n) => n,
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(e) => return Err(e),
+            };
+            if out.capacity() - out.len() < n {
+                let mut bigger = Zeroizing::new(Vec::with_capacity((out.len() + n).max(out.capacity() * 2)));
+                bigger.extend_from_slice(&out);
+                out = bigger; // old buffer is wiped on drop
+            }
+            //out.extend_from_slice(chunk.get(..n).unwrap_or_default());
+            out.extend_from_slice(chunk.split_at(n).0);
+        }
+        self.keyfile = Some(out);
         Ok(self)
     }
 
@@ -205,7 +206,7 @@ impl DatabaseKey {
         let mut out = Vec::new();
 
         if let Some(p) = &self.password {
-            out.push(calculate_sha256(&[p.as_bytes()]).to_vec());
+            out.push(sha256_element(&[p.as_bytes()]));
         }
 
         if let Some(ref f) = self.keyfile {
@@ -218,7 +219,7 @@ impl DatabaseKey {
 
         #[cfg(feature = "challenge_response")]
         if let Some(result) = &self.challenge_response_result {
-            out.push(calculate_sha256(&[result]).as_slice().to_vec());
+            out.push(sha256_element(&[result.as_slice()]));
         } else if self.challenge_response_key.is_some() {
             return Err(DatabaseKeyError::ChallengeResponse(
                 crate::key::yubikey::ChallengeResponseKeyError::NotPerformed,
@@ -273,8 +274,31 @@ pub enum DatabaseKeyError {
 
 #[cfg(test)]
 mod key_tests {
-
     use super::{DatabaseKey, DatabaseKeyError};
+
+    struct Flaky<'a> {
+        data: &'a [u8],
+        interrupted: bool,
+    }
+
+    impl std::io::Read for Flaky<'_> {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            if !self.interrupted {
+                self.interrupted = true;
+                return Err(std::io::ErrorKind::Interrupted.into());
+            }
+            let n = self.data.len().min(buf.len()).min(1000);
+            let (head, tail) = self.data.split_at(n);
+            let (dst, _) = buf.split_at_mut(n);
+            dst.copy_from_slice(head);
+            self.data = tail;
+            Ok(n)
+        }
+    }
+
+    fn first(ke: &[super::KeyElement]) -> Result<&[u8], DatabaseKeyError> {
+        ke.first().map(|k| k.as_slice()).ok_or(DatabaseKeyError::EmptyKey)
+    }
 
     #[test]
     fn test_key() -> Result<(), DatabaseKeyError> {
@@ -331,11 +355,14 @@ mod key_tests {
             .get_key_elements()?;
         assert_eq!(ke.len(), 1);
 
+        let expected = hex::decode("36057B1C35037FD962257893C0A22403EE3F8FBB504D998108B821CB00D28F89")
+            .map_err(|_| DatabaseKeyError::InvalidKeyFile)?;
+        assert_eq!(first(&ke)?, expected.as_slice());
+
         // other XML files will just be hashed as a "bare" keyfile
         let ke = DatabaseKey::new()
             .with_keyfile(&mut "<Not><A><KeyFile></KeyFile></A></Not>".as_bytes())?
             .get_key_elements()?;
-
         assert_eq!(ke.len(), 1);
 
         assert!(DatabaseKey {
@@ -348,6 +375,24 @@ mod key_tests {
         }
         .get_key_elements()
         .is_err());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_keyfile_large_and_interrupted() -> Result<(), DatabaseKeyError> {
+        let data = vec![7u8; 10_000];
+        let ke = DatabaseKey::new()
+            .with_keyfile(&mut Flaky {
+                data: &data,
+                interrupted: false,
+            })?
+            .get_key_elements()?;
+
+        assert_eq!(
+            first(&ke)?,
+            crate::crypt::calculate_sha256(&[data.as_slice()]).as_slice()
+        );
 
         Ok(())
     }

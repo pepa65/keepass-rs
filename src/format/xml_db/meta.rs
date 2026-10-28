@@ -1,8 +1,7 @@
-use std::collections::{HashMap, HashSet};
-
-use serde::{Deserialize, Serialize};
-
 use base64::{engine::general_purpose as base64_engine, Engine as _};
+use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
+use zeroize::Zeroizing;
 
 use crate::{
     compression::Compression,
@@ -218,7 +217,7 @@ impl Binary {
         self,
         inner_decryptor: &mut dyn crate::crypt::ciphers::Cipher,
     ) -> Result<crate::db::Value<Vec<u8>>, UnprotectError> {
-        let mut data = base64_engine::STANDARD.decode(self.value)?;
+        let mut data = Zeroizing::new(base64_engine::STANDARD.decode(self.value)?);
         let protected = self.protected.unwrap_or(false);
 
         if protected {
@@ -229,6 +228,9 @@ impl Binary {
         if self.compressed.unwrap_or(false) && !data.is_empty() {
             data = crate::compression::GZipCompression.decompress(&data)?;
         }
+
+        // Move the bytes out; the Value owns the only live copy, and the emptied Zeroizing has nothing to wipe.
+        let data = std::mem::take(&mut *data);
 
         let data = if protected {
             crate::db::Value::protected(data)

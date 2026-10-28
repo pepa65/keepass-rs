@@ -107,7 +107,7 @@ impl Entry {
             let value = if field.value.protected {
                 let fval = base64_engine::STANDARD.decode(fval)?;
                 let fval = inner_decryptor.decrypt(&fval)?;
-                let fval = String::from_utf8_lossy(&fval).to_string();
+                let fval = String::from_utf8_lossy(&fval).into_owned();
 
                 crate::db::Value::protected(fval)
             } else {

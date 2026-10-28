@@ -43,8 +43,8 @@ impl Database {
         let data = match database_version {
             DatabaseVersion::KDB(_) => return Err(DatabaseOpenError::UnsupportedVersion),
             DatabaseVersion::KDB2(_) => return Err(DatabaseOpenError::UnsupportedVersion),
-            DatabaseVersion::KDB3(_) => decrypt_kdbx3(data.as_ref(), &key)?.2,
-            DatabaseVersion::KDB4(_) => decrypt_kdbx4(data.as_ref(), &key)?.3,
+            DatabaseVersion::KDB3(_) => decrypt_kdbx3(data.as_ref(), &key)?.2.to_vec(),
+            DatabaseVersion::KDB4(_) => decrypt_kdbx4(data.as_ref(), &key)?.3.to_vec(),
         };
 
         Ok(data)

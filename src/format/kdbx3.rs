@@ -1,15 +1,15 @@
 use crate::{
     config::{CompressionConfig, DatabaseConfig, InnerCipherConfig, KdfConfig, OuterCipherConfig},
-    crypt::{calculate_sha256, ciphers::Cipher},
+    crypt::{calculate_sha256, ciphers::Cipher, sha256_key},
     db::{Database, DatabaseFormatError, DatabaseOpenError},
     format::DatabaseVersion,
     key::{DatabaseKey, DatabaseKeyError},
 };
 
 use byteorder::{ByteOrder, LittleEndian};
-use thiserror::Error;
-
 use std::convert::TryFrom;
+use thiserror::Error;
+use zeroize::Zeroizing;
 
 #[derive(Debug)]
 struct KDBX3Header {
@@ -22,7 +22,7 @@ struct KDBX3Header {
     kdf_config: KdfConfig,
 
     outer_iv: Vec<u8>,
-    protected_stream_key: Vec<u8>,
+    protected_stream_key: Zeroizing<Vec<u8>>,
     stream_start: Vec<u8>,
     inner_cipher: InnerCipherConfig,
     body_start: usize,
@@ -35,7 +35,7 @@ fn parse_outer_header(data: &[u8]) -> Result<KDBX3Header, Kdbx3OuterHeaderError>
     let mut transform_seed: Option<Vec<u8>> = None;
     let mut transform_rounds: Option<u64> = None;
     let mut outer_iv: Option<Vec<u8>> = None;
-    let mut protected_stream_key: Option<Vec<u8>> = None;
+    let mut protected_stream_key: Option<Zeroizing<Vec<u8>>> = None;
     let mut stream_start: Option<Vec<u8>> = None;
     let mut inner_cipher: Option<InnerCipherConfig> = None;
 
@@ -100,7 +100,7 @@ fn parse_outer_header(data: &[u8]) -> Result<KDBX3Header, Kdbx3OuterHeaderError>
             7 => outer_iv = Some(entry_buffer.to_vec()),
 
             // PROTECTEDSTREAMKEY - Key for decrypting the inner protected values
-            8 => protected_stream_key = Some(entry_buffer.to_vec()),
+            8 => protected_stream_key = Some(entry_buffer.to_vec().into()),
 
             // STREAMSTARTBYTES - First bytes of decrypted payload (to check correct decryption)
             9 => stream_start = Some(entry_buffer.to_vec()),
@@ -200,7 +200,7 @@ pub(crate) fn parse_kdbx3(data: &[u8], db_key: &DatabaseKey) -> Result<Database,
 pub(crate) fn decrypt_kdbx3(
     data: &[u8],
     db_key: &DatabaseKey,
-) -> Result<(DatabaseConfig, Box<dyn Cipher>, Vec<u8>), DatabaseOpenError> {
+) -> Result<(DatabaseConfig, Box<dyn Cipher>, Zeroizing<Vec<u8>>), DatabaseOpenError> {
     let version = DatabaseVersion::parse(data)?;
     let header = parse_outer_header(data)
         .map_err(|e| DatabaseOpenError::Format(DatabaseFormatError::Kdbx3(Kdbx3OpenError::OuterHeader(e))))?;
@@ -225,9 +225,11 @@ pub(crate) fn decrypt_kdbx3(
     let payload_encrypted = data.get(pos..).ok_or(DatabaseOpenError::UnexpectedEof)?;
 
     // derive master key from composite key, transform_seed, transform_rounds and master_seed
-    let key_elements = db_key.get_key_elements()?;
-    let key_elements: Vec<&[u8]> = key_elements.iter().map(|v| &v[..]).collect();
-    let composite_key = calculate_sha256(&key_elements);
+    let composite_key = {
+        let key_elements = db_key.get_key_elements()?;
+        let key_elements: Vec<&[u8]> = key_elements.iter().map(|v| &v[..]).collect();
+        sha256_key(&key_elements)
+    };
 
     // transform the key
     let transformed_key = config
@@ -235,7 +237,7 @@ pub(crate) fn decrypt_kdbx3(
         .get_kdf_seeded(&header.transform_seed)
         .transform_key(&composite_key)?;
 
-    let master_key = calculate_sha256(&[header.master_seed.as_ref(), &transformed_key]);
+    let master_key = sha256_key(&[header.master_seed.as_ref(), &transformed_key]);
 
     // Decrypt payload
     let payload = config
@@ -251,7 +253,7 @@ pub(crate) fn decrypt_kdbx3(
         return Err(DatabaseKeyError::IncorrectKey.into());
     }
 
-    let mut buf = Vec::new();
+    let mut buf = Zeroizing::new(Vec::with_capacity(payload.len()));
 
     pos = 32;
     let mut block_index = 0;
@@ -294,8 +296,8 @@ pub(crate) fn decrypt_kdbx3(
             )));
         }
 
-        // Decompress block_buffer_compressed
-        buf.append(&mut block_buffer_compressed.to_vec());
+        // Collect block_buffer_compressed
+        buf.extend_from_slice(block_buffer_compressed);
 
         pos += 40 + block_size;
         block_index += 1;

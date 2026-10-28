@@ -1,6 +1,6 @@
 use crate::{
     config::{CompressionConfig, DatabaseConfig, InnerCipherConfig, KdfConfig, OuterCipherConfig},
-    crypt::calculate_sha256,
+    crypt::{calculate_sha256, sha256_key, Key256},
     db::{fields, Database, DatabaseFormatError, DatabaseOpenError, GroupId, Value},
     format::DatabaseVersion,
     key::{DatabaseKey, DatabaseKeyError},
@@ -9,11 +9,9 @@ use crate::{
 use byteorder::{ByteOrder, LittleEndian};
 use hybrid_array::Array as GenericArray;
 use thiserror::Error;
+use zeroize::Zeroizing;
 
-use std::{
-    collections::HashMap,
-    convert::{TryFrom, TryInto},
-};
+use std::{collections::HashMap, convert::TryFrom};
 
 #[derive(Debug)]
 struct KDBHeader {
@@ -239,9 +237,9 @@ fn parse_entries(
     let mut parsing_fields: HashMap<String, Value<String>> = HashMap::new();
 
     let mut parsing_binary_desc: Option<String> = None;
-    let mut parsing_binary_data: Option<Vec<u8>> = None;
+    let mut parsing_binary_data: Option<Zeroizing<Vec<u8>>> = None;
 
-    let mut entry_attachments: HashMap<String, Vec<u8>> = HashMap::new();
+    let mut entry_attachments: HashMap<String, Zeroizing<Vec<u8>>> = HashMap::new();
 
     let mut num_entries = 0;
     while num_entries < header_num_entries {
@@ -326,20 +324,20 @@ fn parse_entries(
             // BinaryDesc
             0x000d => {
                 if let Some(ref data) = parsing_binary_data {
-                    entry_attachments.insert(from_utf8(field_value), data.clone());
+                    entry_attachments.insert(from_utf8(field_value), data.clone()); // Zeroizing: Clone stays wiped
                     parsing_binary_desc = None;
                 } else {
-                    parsing_binary_desc = Some(from_utf8(field_value));
+                    parsing_binary_desc = Some(from_utf8(field_value).into());
                 }
             }
 
             // BinaryData
             0x000e => {
                 if let Some(ref desc) = parsing_binary_desc {
-                    entry_attachments.insert(desc.clone(), field_value.to_vec());
+                    entry_attachments.insert(desc.clone(), field_value.to_vec().into());
                     parsing_binary_data = None;
                 } else {
-                    parsing_binary_data = Some(field_value.to_vec());
+                    parsing_binary_data = Some(field_value.to_vec().into());
                 }
             }
 
@@ -360,8 +358,8 @@ fn parse_entries(
                 let mut entry = group.add_entry();
                 entry.fields = parsing_fields.clone();
 
-                for (desc, data) in entry_attachments.drain() {
-                    entry.add_attachment(desc, Value::protected(data));
+                for (desc, mut data) in entry_attachments.drain() {
+                    entry.add_attachment(desc, Value::protected(std::mem::take(&mut *data)));
                 }
 
                 parsing_fields.clear();
@@ -399,18 +397,18 @@ pub(crate) fn parse_kdb(data: &[u8], db_key: &DatabaseKey) -> Result<Database, D
     let payload_encrypted = data.get(HEADER_SIZE..).ok_or(DatabaseOpenError::UnexpectedEof)?;
 
     // derive master key from composite key, transform_seed, transform_rounds and master_seed
-    let key_elements = db_key.get_key_elements()?;
-    let key_elements: Vec<&[u8]> = key_elements.iter().map(|v| &v[..]).collect();
-    let composite_key = if key_elements.len() == 1 {
-        #[allow(clippy::indexing_slicing, clippy::expect_used)] // key_elements is guaranteed to be 1 byte
-        let key_element: [u8; 32] = key_elements[0]
-            .try_into()
-            .expect("initializing from single element should always succeed");
-        GenericArray::from(key_element) // single pass of SHA256, already done before the call to parse()
-    } else {
-        calculate_sha256(&key_elements) // second pass of SHA256
+    let composite_key: Key256 = {
+        let key_elements = db_key.get_key_elements()?;
+        let key_elements: Vec<&[u8]> = key_elements.iter().map(|v| &v[..]).collect();
+        if key_elements.len() == 1 {
+            let mut k: Key256 = GenericArray::default().into();
+            #[allow(clippy::indexing_slicing)] // key_elements is guaranteed to have 1 element
+            k.as_mut_slice().copy_from_slice(key_elements[0]); // panics unless 32 bytes, as before
+            k // single pass of SHA256, already done before the call to parse()
+        } else {
+            sha256_key(&key_elements) // second pass of SHA256
+        }
     };
-
     // KDF is always AES
     let kdf_config = KdfConfig::Aes {
         rounds: u64::from(header.transform_rounds),
@@ -420,7 +418,7 @@ pub(crate) fn parse_kdb(data: &[u8], db_key: &DatabaseKey) -> Result<Database, D
         .get_kdf_seeded(&header.transform_seed)
         .transform_key(&composite_key)?;
 
-    let master_key = calculate_sha256(&[&header.master_seed, &transformed_key]);
+    let master_key = sha256_key(&[&header.master_seed, &transformed_key]);
 
     let outer_cipher_config = if header.flags & 2 != 0 {
         OuterCipherConfig::AES256

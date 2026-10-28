@@ -5,7 +5,7 @@ use challenge_response::{
 use cipher::InvalidLength;
 use hex::FromHexError;
 use thiserror::Error;
-use zeroize::{Zeroize, ZeroizeOnDrop};
+use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 use crate::key::KeyElement;
 
@@ -31,8 +31,10 @@ impl ChallengeResponseKey {
     pub(crate) fn perform_challenge(&self, challenge: &[u8]) -> Result<KeyElement, ChallengeResponseKeyError> {
         match self {
             ChallengeResponseKey::LocalChallenge(secret) => {
-                let secret_bytes = hex::decode(secret)?;
-                let response = crate::crypt::calculate_hmac_sha1(&[challenge], &secret_bytes)?.to_vec();
+                let secret_bytes = Zeroizing::new(hex::decode(secret)?);
+                // hmac_sha1_element wipes its digest temporary and returns Zeroizing<Vec<u8>>.
+                // InvalidLength converts via the existing #[from].
+                let response = crate::crypt::hmac_sha1_element(&[challenge], &secret_bytes)?;
                 Ok(response)
             }
             ChallengeResponseKey::YubikeyChallenge(yubikey, slot_number) => {
@@ -46,11 +48,8 @@ impl ChallengeResponseKey {
                 config = config.set_variable_size(true);
                 config = config.set_mode(Mode::Sha1);
                 config = config.set_slot(slot);
-
-                let key_element = challenge_response_client
-                    .challenge_response_hmac(challenge, config)?
-                    .to_vec();
-
+                let hmac = challenge_response_client.challenge_response_hmac(challenge, config)?;
+                let key_element = Zeroizing::new(hmac.to_vec());
                 Ok(key_element)
             }
         }
@@ -102,7 +101,8 @@ impl ChallengeResponseKey {
                 return Err(ChallengeResponseKeyError::AmbiguousKeys);
             }
 
-            #[allow(clippy::indexing_slicing)] // Safe because we check that the list is not empty above
+            #[allow(clippy::indexing_slicing)]
+            // Safe because we check that the list is not empty above
             Ok(devices[0].clone())
         }
     }

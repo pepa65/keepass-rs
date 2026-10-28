@@ -1,6 +1,7 @@
 use std::io::Write;
 
 use byteorder::{LittleEndian, WriteBytesExt};
+use zeroize::Zeroizing;
 
 use crate::{
     crypt,
@@ -39,8 +40,9 @@ pub fn dump_kdbx4(
     let mut outer_iv = vec![0; db.config.outer_cipher_config.get_iv_size()];
     getrandom::fill(&mut outer_iv)?;
 
-    let mut inner_random_stream_key = vec![0; db.config.inner_cipher_config.get_key_size()];
-    getrandom::fill(&mut inner_random_stream_key)?;
+    let mut inner_random_stream_key: Zeroizing<Vec<u8>> =
+        vec![0; db.config.inner_cipher_config.get_key_size()].into();
+    getrandom::fill(inner_random_stream_key.as_mut_slice())?;
 
     let (kdf, kdf_seed) = db.config.kdf_config.get_kdf_and_seed()?;
 
@@ -70,14 +72,16 @@ pub fn dump_kdbx4(
     writer.write_all(&header_sha256)?;
 
     // derive master key from composite key, transform_seed, transform_rounds and master_seed
-    let key_elements = db_key.get_key_elements()?;
-    let key_elements: Vec<&[u8]> = key_elements.iter().map(|v| &v[..]).collect();
-    let composite_key = crypt::calculate_sha256(&key_elements);
+    let composite_key = {
+        let key_elements = db_key.get_key_elements()?;
+        let key_elements: Vec<&[u8]> = key_elements.iter().map(|v| &v[..]).collect();
+        crypt::sha256_key(&key_elements)
+    };
     let transformed_key = kdf.transform_key(&composite_key)?;
-    let master_key = crypt::calculate_sha256(&[&master_seed, &transformed_key]);
+    let master_key = crypt::sha256_key(&[&master_seed, &transformed_key]);
 
     // verify credentials
-    let hmac_key = crypt::calculate_sha512(&[&master_seed, &transformed_key, &hmac_block_stream::HMAC_KEY_END]);
+    let hmac_key = crypt::sha512_key(&[&master_seed, &transformed_key, &hmac_block_stream::HMAC_KEY_END]);
     let header_hmac_key = hmac_block_stream::get_hmac_block_key(u64::MAX, &hmac_key);
 
     #[allow(clippy::expect_used)] // HMAC key is always correctly sized, so this can't fail
@@ -94,16 +98,17 @@ pub fn dump_kdbx4(
 
     // convert database to XML and header attachments
     let (xml, attachments) = crate::format::xml_db::to_xml(db, &mut *inner_cipher)?;
+    let xml: Zeroizing<Vec<u8>> = xml.into();
 
     // dump inner header into buffer
-    let mut payload = Vec::new();
+    let attachments_len: usize = attachments.iter().map(|a| a.len() + 6).sum();
+    let mut payload: Zeroizing<Vec<u8>> = Vec::with_capacity(xml.len() + attachments_len + 4096).into();
     KDBX4InnerHeader {
         inner_random_stream: db.config.inner_cipher_config.clone(),
         inner_random_stream_key,
     }
-    .dump(&attachments, &mut payload)?;
-
-    payload.extend(xml);
+    .dump(&attachments, &mut *payload)?;
+    payload.extend_from_slice(&xml);
 
     let payload_compressed = db
         .config
