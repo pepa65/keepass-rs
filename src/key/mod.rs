@@ -5,7 +5,7 @@ use quick_xml::{encoding::EncodingError, events::Event, reader::Reader, XmlVersi
 use thiserror::Error;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
-use crate::crypt::calculate_sha256;
+use crate::crypt::{calculate_sha256, Redacted};
 
 pub type KeyElement = Vec<u8>;
 pub type KeyElements = Vec<KeyElement>;
@@ -129,7 +129,7 @@ fn parse_keyfile(buffer: &[u8]) -> Result<KeyElement, DatabaseKeyError> {
 }
 
 /// A KeePass key, which might consist of a password and/or a keyfile
-#[derive(Debug, Clone, Default, PartialEq, Zeroize, ZeroizeOnDrop)]
+#[derive(Clone, Default, PartialEq, Zeroize, ZeroizeOnDrop)]
 pub struct DatabaseKey {
     password: Option<String>,
     keyfile: Option<Vec<u8>>,
@@ -137,6 +137,24 @@ pub struct DatabaseKey {
     challenge_response_key: Option<ChallengeResponseKey>,
     #[cfg(feature = "challenge_response")]
     challenge_response_result: Option<KeyElement>,
+}
+
+impl std::fmt::Debug for DatabaseKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut d = f.debug_struct("DatabaseKey");
+        // show whether a component is present, never its contents
+        d.field("password", &self.password.as_ref().map(|_| Redacted));
+        d.field("keyfile", &self.keyfile.as_ref().map(|_| Redacted));
+        #[cfg(feature = "challenge_response")]
+        {
+            d.field("challenge_response_key", &self.challenge_response_key);
+            d.field(
+                "challenge_response_result",
+                &self.challenge_response_result.as_ref().map(|_| Redacted),
+            );
+        }
+        d.finish()
+    }
 }
 
 impl DatabaseKey {
@@ -350,5 +368,30 @@ mod key_tests {
         .is_err());
 
         Ok(())
+    }
+
+    #[test]
+    fn debug_does_not_leak_secrets() -> Result<(), DatabaseKeyError> {
+        let key = DatabaseKey::new()
+            .with_password("zq-secret-password")
+            .with_keyfile(&mut "zq-keyfile".as_bytes())?;
+        let out = format!("{:?}", key);
+
+        assert!(out.contains("[redacted]"));
+        assert!(!out.contains("zq-secret-password"));
+        // Vec<u8> prints as decimal bytes: b"zq" is 122, 113
+        assert!(!out.contains("122, 113"));
+        Ok(())
+    }
+
+    #[cfg(feature = "challenge_response")]
+    #[test]
+    fn debug_does_not_leak_challenge_secret() {
+        let key = DatabaseKey::new().with_challenge_response_key(
+            crate::key::ChallengeResponseKey::LocalChallenge("0102030405060708090a0b0c0d0e0f1011121314".into()),
+        );
+        let out = format!("{:?}", key);
+        assert!(!out.contains("0102030405"));
+        assert!(out.contains("LocalChallenge([redacted])"));
     }
 }

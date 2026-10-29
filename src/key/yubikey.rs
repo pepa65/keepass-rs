@@ -7,10 +7,10 @@ use hex::FromHexError;
 use thiserror::Error;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
-use crate::key::KeyElement;
+use crate::key::{KeyElement, Redacted};
 
 /// Represents a challenge-response key, which can be either a local secret or a Yubikey device.
-#[derive(Debug, Clone, PartialEq, Zeroize, ZeroizeOnDrop)]
+#[derive(Clone, PartialEq, Zeroize, ZeroizeOnDrop)]
 #[non_exhaustive]
 pub enum ChallengeResponseKey {
     /// A local challenge-response key represented by a hexadecimal string secret.
@@ -18,6 +18,22 @@ pub enum ChallengeResponseKey {
 
     /// A Yubikey challenge-response key, consisting of a Yubikey device and a slot number.
     YubikeyChallenge(Yubikey, String),
+}
+
+impl std::fmt::Debug for ChallengeResponseKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ChallengeResponseKey::LocalChallenge(_) => {
+                f.debug_tuple("LocalChallenge").field(&Redacted).finish()
+            }
+            // device serial, optional name and slot number are not secret
+            ChallengeResponseKey::YubikeyChallenge(yubikey, slot) => f
+                .debug_tuple("YubikeyChallenge")
+                .field(yubikey)
+                .field(slot)
+                .finish(),
+        }
+    }
 }
 
 /// Represents a Yubikey device with its serial number and optional name.

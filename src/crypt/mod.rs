@@ -63,6 +63,15 @@ pub(crate) fn calculate_sha512(elements: &[&[u8]]) -> GenericArray<u8, U64> {
     digest.finalize()
 }
 
+/// Prints as `[redacted]` in `Debug` output, to stand in for secret data.
+pub(crate) struct Redacted;
+
+impl std::fmt::Debug for Redacted {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("[redacted]")
+    }
+}
+
 /// Errors that can occur during cryptographic operations
 #[derive(Error, Debug)]
 #[non_exhaustive]

@@ -1,6 +1,6 @@
 use crate::{
     config::{CompressionConfig, DatabaseConfig, InnerCipherConfig, KdfConfig, OuterCipherConfig},
-    crypt::{calculate_sha256, ciphers::Cipher},
+    crypt::{calculate_sha256, ciphers::Cipher, Redacted},
     db::{Database, DatabaseFormatError, DatabaseOpenError},
     format::DatabaseVersion,
     key::{DatabaseKey, DatabaseKeyError},
@@ -11,7 +11,6 @@ use thiserror::Error;
 
 use std::convert::TryFrom;
 
-#[derive(Debug)]
 struct KDBX3Header {
     // https://gist.github.com/msmuenchen/9318327
     outer_cipher: OuterCipherConfig,
@@ -26,6 +25,23 @@ struct KDBX3Header {
     stream_start: Vec<u8>,
     inner_cipher: InnerCipherConfig,
     body_start: usize,
+}
+
+impl std::fmt::Debug for KDBX3Header {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("KDBX3Header")
+            .field("outer_cipher", &self.outer_cipher)
+            .field("compression", &self.compression)
+            .field("master_seed", &self.master_seed)
+            .field("transform_seed", &self.transform_seed)
+            .field("kdf_config", &self.kdf_config)
+            .field("outer_iv", &self.outer_iv)
+            .field("protected_stream_key", &Redacted)
+            .field("stream_start", &self.stream_start)
+            .field("inner_cipher", &self.inner_cipher)
+            .field("body_start", &self.body_start)
+            .finish()
+    }
 }
 
 fn parse_outer_header(data: &[u8]) -> Result<KDBX3Header, Kdbx3OuterHeaderError> {
