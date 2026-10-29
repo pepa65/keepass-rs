@@ -55,7 +55,13 @@ impl TryFrom<&[u8]> for KDBHeader {
 }
 
 fn from_utf8(data: &[u8]) -> String {
-    String::from_utf8_lossy(data).trim_end_matches('\0').to_owned()
+    // Trim trailing NULs on the bytes, before decoding. The result is the same as trimming the
+    // decoded string, because a NUL byte is always its own character. Doing it first means the
+    // decoded string can be returned as is, with no second copy.
+    let end = data.iter().rposition(|&b| b != 0).map_or(0, |i| i + 1);
+    let data = data.get(..end).unwrap_or_default();
+    // Borrowed (valid UTF-8): one copy. Owned (invalid UTF-8): moved out, not copied again.
+    String::from_utf8_lossy(data).into_owned()
 }
 
 fn expected_group_field_size(ftype: u16) -> Option<u32> {
@@ -534,4 +540,25 @@ pub enum KdbOpenError {
     /// The database is encrypted with a cipher that is not recognized or supported
     #[error("Invalid fixed cipher ID: {0}")]
     InvalidFixedCipherID(u32),
+}
+
+#[cfg(test)]
+mod from_utf8_tests {
+    use super::from_utf8;
+
+    #[test]
+    fn trims_trailing_nuls() {
+        assert_eq!(from_utf8(b"abc\0\0"), "abc");
+        assert_eq!(from_utf8(b"abc"), "abc");
+        assert_eq!(from_utf8(b""), "");
+        assert_eq!(from_utf8(b"\0\0"), "");
+        assert_eq!(from_utf8(b"a\0b\0"), "a\0b");
+    }
+
+    #[test]
+    fn invalid_utf8_is_replaced() {
+        assert_eq!(from_utf8(&[b'a', 0xff, b'b', 0]), "a\u{FFFD}b");
+        // truncated multibyte sequence followed by a NUL
+        assert_eq!(from_utf8(&[0xe2, 0x82, 0]), "\u{FFFD}");
+    }
 }
