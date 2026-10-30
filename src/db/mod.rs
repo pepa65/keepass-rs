@@ -5,7 +5,7 @@
 //! what is happening, but these can be omitted in your own code.
 //!
 //! ```
-//! use keepass::{Database, db::{fields, AttachmentMut, EntryMut, GroupMut, Value}};
+//! use keepass::{Database, db::{fields, EntryMut, GroupMut}};
 //! # fn main() {
 //! let mut db = Database::new();
 //! let mut root: GroupMut<'_> = db.root_mut();
@@ -25,10 +25,6 @@
 //! entry.set_unprotected(fields::USERNAME, "jdoe");
 //! entry.set_protected(fields::PASSWORD, "hunter2");
 //! entry.tags.push("example".into());
-//!
-//! // Adding the attachment to an entry will store it in the associated database and add a
-//! // reference to the entry.
-//! entry.add_attachment("myfile.txt", Value::unprotected(b"Hello, world!".to_vec()));
 //!
 //! // You can also use the fluent API to chain method calls together.
 //! let entry_id = root.add_group()
@@ -50,24 +46,14 @@ pub mod fields;
 mod open;
 mod types;
 
-#[cfg(feature = "_merge")]
 pub mod merge;
-
-#[cfg(feature = "totp")]
 mod otp;
-
-#[cfg(feature = "save_kdbx4")]
 mod save;
-
-#[cfg(feature = "save_kdbx4")]
 pub use crate::db::save::DatabaseSaveError;
-
 pub use crate::db::{
     open::{DatabaseFormatError, DatabaseOpenError},
     types::*,
 };
-
-#[cfg(feature = "totp")]
 pub use crate::db::otp::{TOTPAlgorithm, TOTPError, TOTP};
 
 #[cfg(test)]
@@ -104,7 +90,6 @@ mod database_tests {
         .is_err());
     }
 
-    #[cfg(feature = "save_kdbx4")]
     #[test]
     fn test_save() {
         use crate::format::variant_dictionary::VariantDictionary;

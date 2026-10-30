@@ -17,7 +17,6 @@
 //! our deserializer is permissive enough to accept both the broken
 //! and the correct forms.
 
-#![cfg(feature = "save_kdbx4")]
 #![allow(clippy::expect_used)]
 
 use keepass::{Database, DatabaseKey};

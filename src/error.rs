@@ -19,11 +19,5 @@ pub use crate::{
     key::{DatabaseKeyError, ParseXmlKeyFileError},
 };
 
-#[cfg(feature = "challenge_response")]
-pub use crate::key::ChallengeResponseKeyError;
-
-#[cfg(feature = "save_kdbx4")]
 pub use crate::db::DatabaseSaveError;
-
-#[cfg(feature = "totp")]
 pub use crate::db::TOTPError;

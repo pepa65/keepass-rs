@@ -11,8 +11,6 @@
 //! also written `,` (see `tests/resources/inner_xml_with_custom_fields.xml`
 //! and `test_db_kdbx4_with_password_aes.kdbx`), so reading must accept both.
 
-#![cfg(feature = "save_kdbx4")]
-
 use keepass::{Database, DatabaseKey};
 
 const PASSWORD: &str = "demopass";

@@ -17,7 +17,7 @@ use crate::{
 
 /// Unique identifier for a [Group]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "serialization", derive(serde::Serialize))]
+#[derive(serde::Serialize)]
 pub struct GroupId(Uuid);
 
 impl GroupId {
@@ -55,7 +55,7 @@ impl std::fmt::Display for GroupId {
 
 /// A database group with child groups and entries
 #[derive(Debug, Eq, PartialEq, Clone)]
-#[cfg_attr(feature = "serialization", derive(serde::Serialize))]
+#[derive(serde::Serialize)]
 pub struct Group {
     /// The unique identifier of the group
     pub(crate) id: GroupId,

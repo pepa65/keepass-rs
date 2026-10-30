@@ -14,7 +14,7 @@ use crate::{
 
 /// Icon specification for an [Entry][crate::db::Entry] or [Group][crate::db::Group].
 #[derive(Debug, Eq, PartialEq, Clone)]
-#[cfg_attr(feature = "serialization", derive(serde::Serialize))]
+#[derive(serde::Serialize)]
 pub enum Icon {
     /// The icon is a built-in icon specified by an index
     BuiltIn(usize),
@@ -25,7 +25,7 @@ pub enum Icon {
 
 /// A unique identifier for a [CustomIcon]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "serialization", derive(serde::Serialize))]
+#[derive(serde::Serialize)]
 pub struct CustomIconId(Uuid);
 
 impl std::fmt::Display for CustomIconId {
@@ -51,7 +51,7 @@ impl CustomIconId {
 
 /// A custom icon stored in the database, containing raw image data.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "serialization", derive(serde::Serialize))]
+#[derive(serde::Serialize)]
 pub struct CustomIcon {
     pub(crate) id: CustomIconId,
 

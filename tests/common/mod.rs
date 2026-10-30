@@ -7,7 +7,7 @@ use keepass::{
     config::{
         CompressionConfig, DatabaseConfig, DatabaseVersion, InnerCipherConfig, KdfConfig, OuterCipherConfig,
     },
-    db::{CustomDataItem, CustomDataValue, Database, Value},
+    db::{CustomDataItem, CustomDataValue, Database},
     DatabaseKey,
 };
 
@@ -265,7 +265,6 @@ impl Combo {
             },
         );
 
-        let mut first_entry_id = None;
         for i in 0..10 {
             let mut root = db.root_mut();
             let mut e = root.add_entry();
@@ -291,9 +290,6 @@ impl Combo {
                     last_modification_time: None,
                 },
             );
-            if i == 0 {
-                first_entry_id = Some(e.id());
-            }
         }
 
         let bin_uuid = {
@@ -307,35 +303,17 @@ impl Combo {
         };
         db.meta.recyclebin_enabled = Some(true);
         db.meta.recyclebin_uuid = Some(bin_uuid);
-
-        let first_id = first_entry_id.expect("at least one entry created");
-        let mut e = db.entry_mut(first_id).expect("first entry exists");
-        e.add_attachment("small.bin", Value::Unprotected(b"small".to_vec()));
-        let noise = {
-            let mut buf = vec![0u8; 4 * 1024];
-            let mut r = StdRng::seed_from_u64(MASTER_SEED ^ 0xA);
-            r.fill_bytes(&mut buf);
-            buf
-        };
-        e.add_attachment("noise.bin", Value::Unprotected(noise));
-        e.add_attachment(
-            "nonutf8.bin",
-            Value::Unprotected(vec![0xFF, 0xFE, 0xFD, 0x80, 0x81, 0x82, 0x00, 0x01]),
-        );
-
         db
     }
 }
 
 #[allow(clippy::expect_used)]
-#[cfg(feature = "save_kdbx4")]
 pub fn save_to_vec(db: &Database, key: DatabaseKey) -> Vec<u8> {
     let mut buf = Vec::new();
     db.save(&mut buf, key).expect("save_to_vec: save failed");
     buf
 }
 
-#[cfg(feature = "save_kdbx4")]
 pub fn save_then_open(db: &Database, key: DatabaseKey) -> Database {
     let mut buf = Vec::new();
     db.save(&mut buf, key.clone()).expect("Unable to save database");

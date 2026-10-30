@@ -187,7 +187,7 @@ pub(crate) fn parse_kdbx3(data: &[u8], db_key: &DatabaseKey) -> Result<Database,
     let (config, mut inner_decryptor, xml) = decrypt_kdbx3(data, db_key)?;
 
     // Parse XML data blocks
-    let mut db = crate::format::xml_db::parse_xml(&xml, &[], &mut *inner_decryptor)
+    let mut db = crate::format::xml_db::parse_xml(&xml, &mut *inner_decryptor)
         .map_err(|e| DatabaseOpenError::Format(DatabaseFormatError::Kdbx3(Kdbx3OpenError::Xml(e))))?;
 
     db.config = config;

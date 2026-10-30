@@ -2,7 +2,7 @@ use crate::db::Entry;
 
 /// An entry's history
 #[derive(Debug, Default, Eq, PartialEq, Clone)]
-#[cfg_attr(feature = "serialization", derive(serde::Serialize))]
+#[derive(serde::Serialize)]
 pub struct History {
     pub(crate) entries: Vec<Entry>,
 }

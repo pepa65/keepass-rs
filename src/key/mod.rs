@@ -10,12 +10,6 @@ use crate::crypt::sha256_element;
 pub type KeyElement = Zeroizing<Vec<u8>>;
 pub type KeyElements = Vec<KeyElement>;
 
-#[cfg(feature = "challenge_response")]
-mod yubikey;
-
-#[cfg(feature = "challenge_response")]
-pub use yubikey::{ChallengeResponseKey, ChallengeResponseKeyError};
-
 fn parse_xml_keyfile(xml: &[u8]) -> Result<KeyElement, ParseXmlKeyFileError> {
     let mut tag_stack = Vec::new();
     let mut key_version: Option<String> = None;
@@ -121,10 +115,6 @@ fn parse_keyfile(buffer: &[u8]) -> Result<KeyElement, DatabaseKeyError> {
 pub struct DatabaseKey {
     password: Option<Zeroizing<String>>,
     keyfile: Option<Zeroizing<Vec<u8>>>,
-    #[cfg(feature = "challenge_response")]
-    challenge_response_key: Option<ChallengeResponseKey>,
-    #[cfg(feature = "challenge_response")]
-    challenge_response_result: Option<KeyElement>,
 }
 
 impl DatabaseKey {
@@ -132,23 +122,6 @@ impl DatabaseKey {
     pub fn with_password(mut self, password: &str) -> Self {
         self.password = Some(password.to_string().into());
         self
-    }
-
-    /// Modify the database key to include a password, which is read from a prompt
-    #[cfg(feature = "utilities")]
-    pub fn with_password_from_prompt(mut self, prompt_message: &str) -> Result<Self, std::io::Error> {
-        self.password = Some(Zeroizing::new(rpassword::prompt_password(prompt_message)?));
-        Ok(self)
-    }
-
-    /// Modify the database key to include a challenge-response key, where the secret is read from
-    /// a prompt
-    #[cfg(all(feature = "challenge_response", feature = "utilities"))]
-    pub fn with_hmac_sha1_secret_from_prompt(mut self, prompt_message: &str) -> Result<Self, std::io::Error> {
-        self.challenge_response_key = Some(ChallengeResponseKey::LocalChallenge(rpassword::prompt_password(
-            prompt_message,
-        )?));
-        Ok(self)
     }
 
     /// Modify the database key to include a keyfile
@@ -178,25 +151,6 @@ impl DatabaseKey {
         Ok(self)
     }
 
-    /// Modify the database key to include a challenge-response key
-    #[cfg(feature = "challenge_response")]
-    pub fn with_challenge_response_key(mut self, challenge_response_key: ChallengeResponseKey) -> Self {
-        self.challenge_response_key = Some(challenge_response_key);
-        self
-    }
-
-    /// Perform the challenge-response operation for the database key, if a challenge-response key
-    /// is present.
-    #[cfg(feature = "challenge_response")]
-    pub fn perform_challenge(mut self, kdf_seed: &[u8]) -> Result<Self, DatabaseKeyError> {
-        if let Some(challenge_response_key) = &self.challenge_response_key {
-            let response = challenge_response_key.perform_challenge(kdf_seed)?;
-            self.challenge_response_result = Some(response);
-        }
-
-        Ok(self)
-    }
-
     /// Create a new, empty database key
     pub fn new() -> Self {
         Default::default()
@@ -217,25 +171,12 @@ impl DatabaseKey {
             return Err(DatabaseKeyError::EmptyKey);
         }
 
-        #[cfg(feature = "challenge_response")]
-        if let Some(result) = &self.challenge_response_result {
-            out.push(sha256_element(&[result.as_slice()]));
-        } else if self.challenge_response_key.is_some() {
-            return Err(DatabaseKeyError::ChallengeResponse(
-                crate::key::yubikey::ChallengeResponseKeyError::NotPerformed,
-            ));
-        }
-
         Ok(out)
     }
 
     /// Returns true if the database key is not associated with any key component.
     pub fn is_empty(&self) -> bool {
         if self.password.is_some() || self.keyfile.is_some() {
-            return false;
-        }
-        #[cfg(feature = "challenge_response")]
-        if self.challenge_response_key.is_some() {
             return false;
         }
         true
@@ -265,11 +206,6 @@ pub enum DatabaseKeyError {
     /// An error occurred while parsing the non-XML keyfile
     #[error("Invalid keyfile format")]
     InvalidKeyFile,
-
-    /// An error occurred during challenge-response authentication
-    #[cfg(feature = "challenge_response")]
-    #[error("Challenge-response key error: {0}")]
-    ChallengeResponse(#[from] crate::key::yubikey::ChallengeResponseKeyError),
 }
 
 #[cfg(test)]
@@ -368,10 +304,6 @@ mod key_tests {
         assert!(DatabaseKey {
             password: None,
             keyfile: None,
-            #[cfg(feature = "challenge_response")]
-            challenge_response_key: None,
-            #[cfg(feature = "challenge_response")]
-            challenge_response_result: None,
         }
         .get_key_elements()
         .is_err());

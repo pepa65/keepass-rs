@@ -6,13 +6,10 @@ pub(crate) mod hmac_block_stream;
 pub(crate) mod variant_dictionary;
 pub(crate) mod xml_db;
 
-#[cfg(feature = "save_kdbx4")]
 mod io;
 
-#[cfg(feature = "save_kdbx4")]
 use std::io::Write;
 
-#[cfg(feature = "save_kdbx4")]
 use byteorder::WriteBytesExt;
 use byteorder::{ByteOrder, LittleEndian};
 use thiserror::Error;
@@ -34,7 +31,7 @@ pub const KDBX4_CURRENT_MINOR_VERSION: u16 = 1;
 /// Supported KDB database versions, with the associated
 /// minor version.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "serialization", derive(serde::Serialize))]
+#[derive(serde::Serialize)]
 pub enum DatabaseVersion {
     /// KeePass 1 format
     KDB(u16),
@@ -88,7 +85,6 @@ impl DatabaseVersion {
         Ok(response)
     }
 
-    #[cfg(feature = "save_kdbx4")]
     fn dump(&self, writer: &mut dyn Write) -> Result<(), std::io::Error> {
         if let DatabaseVersion::KDB4(minor_version) = self {
             writer.write_all(&crate::format::KDBX_IDENTIFIER)?;

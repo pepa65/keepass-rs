@@ -3,7 +3,7 @@ use chrono::NaiveDateTime;
 /// Custom data field for an [Entry][crate::db::Entry] or [Meta][crate::db::Meta] for database-wide
 /// custom data
 #[derive(Debug, Default, PartialEq, Eq, Clone)]
-#[cfg_attr(feature = "serialization", derive(serde::Serialize))]
+#[derive(serde::Serialize)]
 pub struct CustomDataItem {
     /// Value of the custom data item.
     pub value: Option<CustomDataValue>,
@@ -14,7 +14,7 @@ pub struct CustomDataItem {
 
 /// Value of a [CustomDataItem]
 #[derive(Debug, PartialEq, Eq, Clone)]
-#[cfg_attr(feature = "serialization", derive(serde::Serialize))]
+#[derive(serde::Serialize)]
 pub enum CustomDataValue {
     /// String custom data value
     String(String),

@@ -2,7 +2,6 @@
 //! Each test builds a database via the public API, saves it, reopens it,
 //! and asserts the 4.1 fields survive intact.
 
-#![cfg(feature = "save_kdbx4")]
 #![forbid(unsafe_code)]
 #![allow(missing_docs)]
 

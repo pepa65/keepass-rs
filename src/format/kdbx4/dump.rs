@@ -5,14 +5,14 @@ use zeroize::Zeroizing;
 
 use crate::{
     crypt,
-    db::{Database, DatabaseSaveError, Value},
+    db::{Database, DatabaseSaveError},
     format::{
         hmac_block_stream,
         io::WriteLengthTaggedExt,
         kdbx4::{
             KDBX4InnerHeader, KDBX4OuterHeader, HEADER_COMPRESSION_ID, HEADER_ENCRYPTION_IV, HEADER_END,
             HEADER_KDF_PARAMS, HEADER_MASTER_SEED, HEADER_MASTER_SEED_SIZE, HEADER_OUTER_ENCRYPTION_ID,
-            INNER_HEADER_BINARY_ATTACHMENTS, INNER_HEADER_END, INNER_HEADER_RANDOM_STREAM_ID,
+            INNER_HEADER_END, INNER_HEADER_RANDOM_STREAM_ID,
             INNER_HEADER_RANDOM_STREAM_KEY,
         },
         variant_dictionary::VariantDictionary,
@@ -45,9 +45,6 @@ pub fn dump_kdbx4(
     getrandom::fill(inner_random_stream_key.as_mut_slice())?;
 
     let (kdf, kdf_seed) = db.config.kdf_config.get_kdf_and_seed()?;
-
-    #[cfg(feature = "challenge_response")]
-    let db_key = db_key.clone().perform_challenge(&kdf_seed)?;
 
     // dump the outer header - need to buffer so that SHA256 can be computed
     let mut header_data = Vec::new();
@@ -96,18 +93,16 @@ pub fn dump_kdbx4(
         .inner_cipher_config
         .get_cipher(&inner_random_stream_key)?;
 
-    // convert database to XML and header attachments
-    let (xml, attachments) = crate::format::xml_db::to_xml(db, &mut *inner_cipher)?;
+    let xml = crate::format::xml_db::to_xml(db, &mut *inner_cipher)?;
     let xml: Zeroizing<Vec<u8>> = xml.into();
 
     // dump inner header into buffer
-    let attachments_len: usize = attachments.iter().map(|a| a.len() + 6).sum();
-    let mut payload: Zeroizing<Vec<u8>> = Vec::with_capacity(xml.len() + attachments_len + 4096).into();
+    let mut payload: Zeroizing<Vec<u8>> = Vec::with_capacity(xml.len() + 4096).into();
     KDBX4InnerHeader {
         inner_random_stream: db.config.inner_cipher_config.clone(),
         inner_random_stream_key,
     }
-    .dump(&attachments, &mut *payload)?;
+    .dump(&mut *payload)?;
     payload.extend_from_slice(&xml);
 
     let payload_compressed = db
@@ -165,28 +160,14 @@ impl KDBX4OuterHeader {
 }
 
 impl KDBX4InnerHeader {
-    fn dump(
-        &self,
-        header_attachments: &[Value<Vec<u8>>],
-        writer: &mut dyn Write,
-    ) -> Result<(), DatabaseSaveError> {
+    fn dump(&self, writer: &mut dyn Write) -> Result<(), DatabaseSaveError> {
         writer.write_all(&[INNER_HEADER_RANDOM_STREAM_ID])?;
         writer.write_u32::<LittleEndian>(4)?;
         writer.write_u32::<LittleEndian>(self.inner_random_stream.dump())?;
-
         writer.write_u8(INNER_HEADER_RANDOM_STREAM_KEY)?;
         writer.write_with_len(&self.inner_random_stream_key)?;
-
-        for attachment in header_attachments {
-            writer.write_u8(INNER_HEADER_BINARY_ATTACHMENTS)?;
-            writer.write_u32::<LittleEndian>((attachment.len() + 1) as u32)?;
-            writer.write_u8(if attachment.is_protected() { 0x01 } else { 0x00 })?;
-            writer.write_all(attachment.get())?;
-        }
-
         writer.write_u8(INNER_HEADER_END)?;
         writer.write_with_len(&[])?;
-
         Ok(())
     }
 }

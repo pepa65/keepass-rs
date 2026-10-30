@@ -1,4 +1,3 @@
-pub(crate) mod attachment;
 pub(crate) mod autotype;
 pub(crate) mod color;
 pub(crate) mod custom_data;
@@ -12,7 +11,6 @@ pub(crate) mod value;
 
 use std::collections::HashMap;
 
-pub use attachment::{Attachment, AttachmentId, AttachmentMut, AttachmentRef};
 pub use autotype::{AutoType, AutoTypeAssociation, DataTransferObfuscation};
 pub use color::{Color, ParseColorError};
 pub use custom_data::{CustomDataItem, CustomDataValue};
@@ -34,7 +32,7 @@ use uuid::Uuid;
 
 /// A decrypted KeePass database
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "serialization", derive(serde::Serialize))]
+#[derive(serde::Serialize)]
 pub struct Database {
     /// Configuration settings of the database such as encryption and compression algorithms
     pub config: DatabaseConfig,
@@ -44,9 +42,6 @@ pub struct Database {
 
     /// Root node of the KeePass database
     pub(crate) root: GroupId,
-
-    /// All attachments in the database, stored in a flat HashMap
-    pub(crate) attachments: HashMap<AttachmentId, Attachment>,
 
     /// All custom icons in the database, stored in a flat HashMap
     pub(crate) custom_icons: HashMap<CustomIconId, CustomIcon>,
@@ -88,7 +83,6 @@ impl Database {
             config: DatabaseConfig::default(),
             meta: Meta::default(),
             root: root_id,
-            attachments: HashMap::new(),
             custom_icons: HashMap::new(),
             entries: HashMap::new(),
             groups,
@@ -106,7 +100,6 @@ impl Database {
             config,
             meta: Meta::default(),
             root: root_id,
-            attachments: HashMap::new(),
             custom_icons: HashMap::new(),
             entries: HashMap::new(),
             groups,
@@ -136,88 +129,6 @@ impl Database {
         self.group_mut(recyclebin_id)
     }
 
-    /// True when the attachment IDs are exactly 0..n, as a file stores them.
-    #[cfg(feature = "save_kdbx4")]
-    pub(crate) fn has_dense_attachment_ids(&self) -> bool {
-        (0..self.attachments.len()).all(|i| self.attachments.contains_key(&AttachmentId::new(i)))
-    }
-
-    /// A copy of the database whose attachment IDs run 0..n in their current
-    /// order, with every reference to them (entries and their history)
-    /// updated. Removing an attachment leaves a gap in the IDs, while a file
-    /// refers to attachments by their position in the inner header: without
-    /// this, every attachment after the gap would be read back as the next
-    /// one's data.
-    #[cfg(feature = "save_kdbx4")]
-    pub(crate) fn with_dense_attachment_ids(&self) -> Database {
-        let mut ids: Vec<AttachmentId> = self.attachments.keys().copied().collect();
-        ids.sort_by_key(|id| id.id());
-        let renumbered: HashMap<AttachmentId, AttachmentId> = ids
-            .iter()
-            .enumerate()
-            .map(|(i, id)| (*id, AttachmentId::new(i)))
-            .collect();
-        let new_id = |id: &AttachmentId| renumbered.get(id).copied().unwrap_or(*id);
-
-        let mut db = self.clone();
-        db.attachments = self
-            .attachments
-            .values()
-            .map(|attachment| {
-                let mut attachment = attachment.clone();
-                attachment.id = new_id(&attachment.id);
-                (attachment.id, attachment)
-            })
-            .collect();
-        for entry in db.entries.values_mut() {
-            for id in entry.attachments.values_mut() {
-                *id = new_id(id);
-            }
-            if let Some(history) = entry.history.as_mut() {
-                for version in history.entries.iter_mut() {
-                    for id in version.attachments.values_mut() {
-                        *id = new_id(id);
-                    }
-                }
-            }
-        }
-        db
-    }
-
-    /// Rebuilds each attachment's references from the entries and their
-    /// history as they are now, and removes the attachments that nothing
-    /// refers to any more. Returns how many were removed.
-    ///
-    /// Replacing an entry's history directly (to trim it, say) leaves the
-    /// attachments only the dropped versions used in the database, where
-    /// saving would still write them, and leaves references to history
-    /// positions that no longer hold the same version. This puts both right.
-    pub fn remove_unused_attachments(&mut self) -> usize {
-        for attachment in self.attachments.values_mut() {
-            attachment.entries.clear();
-        }
-        for entry in self.entries.values() {
-            let versions = entry.history.iter().flat_map(|h| h.entries.iter().enumerate());
-            let uses = std::iter::once((None, entry))
-                .chain(versions.map(|(i, version)| (Some(i), version)))
-                .flat_map(|(index, version)| version.attachments.values().map(move |id| (index, *id)));
-            for (index, id) in uses {
-                if let Some(attachment) = self.attachments.get_mut(&id) {
-                    attachment.entries.insert((entry.id, index));
-                }
-            }
-        }
-        let before = self.attachments.len();
-        self.attachments
-            .retain(|_, attachment| !attachment.entries.is_empty());
-        before - self.attachments.len()
-    }
-
-    /// Get the number of attachments in the database
-    pub fn num_attachments(&self) -> usize {
-        self.attachments.len()
-    }
-
     /// Get the number of custom icons in the database
     pub fn num_custom_icons(&self) -> usize {
         self.custom_icons.len()
@@ -231,25 +142,6 @@ impl Database {
     /// Get the number of groups in the database, including the root group and the recycle bin (if it exists)
     pub fn num_groups(&self) -> usize {
         self.groups.len()
-    }
-
-    /// Iterate over all attachments with immutable access.
-    pub fn iter_all_attachments(&self) -> impl Iterator<Item = AttachmentRef<'_>> + '_ {
-        self.attachments
-            .keys()
-            .map(move |id| AttachmentRef::new(self, *id))
-    }
-
-    /// Iterate over all attachments with mutable access. The provided closure is
-    /// called for each `AttachmentMut` and borrows are limited to the closure body.
-    pub fn foreach_attachment_mut<F>(&mut self, mut f: F)
-    where
-        F: FnMut(AttachmentMut<'_>),
-    {
-        let ids: Vec<AttachmentId> = self.attachments.keys().copied().collect();
-        for id in ids {
-            f(AttachmentMut::new(self, id));
-        }
     }
 
     /// Iterate over all entries with immutable access.
@@ -304,20 +196,6 @@ impl Database {
         for id in ids {
             f(GroupMut::new(self, id));
         }
-    }
-
-    /// Get an immutable reference to the attachment with the given ID, if it exists
-    pub fn attachment(&self, id: AttachmentId) -> Option<AttachmentRef<'_>> {
-        self.attachments
-            .contains_key(&id)
-            .then(move || AttachmentRef::new(self, id))
-    }
-
-    /// Get a mutable reference to the attachment with the given ID, if it exists
-    pub fn attachment_mut(&mut self, id: AttachmentId) -> Option<AttachmentMut<'_>> {
-        self.attachments
-            .contains_key(&id)
-            .then(move || AttachmentMut::new(self, id))
     }
 
     /// Get an immutable reference to the custom icon with the given ID, if it exists

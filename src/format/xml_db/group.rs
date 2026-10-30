@@ -2,9 +2,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-#[cfg(feature = "save_kdbx4")]
 use crate::crypt::CryptographyError;
-#[cfg(feature = "save_kdbx4")]
 use crate::format::xml_db::tags::join_tags;
 use crate::{
     crypt::ciphers::Cipher,
@@ -81,7 +79,6 @@ impl Group {
     pub(crate) fn xml_to_db_handle(
         self,
         mut target: crate::db::GroupMut<'_>,
-        attachments: &HashMap<crate::db::AttachmentId, crate::db::Attachment>,
         custom_icons: &HashMap<crate::db::CustomIconId, crate::db::CustomIcon>,
         inner_decryptor: &mut dyn Cipher,
     ) -> Result<(), UnprotectError> {
@@ -115,11 +112,11 @@ impl Group {
             match child {
                 GroupOrEntry::Group(g) => {
                     let new_group = target.add_group_with_id(GroupId::from_uuid(g.uuid.0))?;
-                    g.xml_to_db_handle(new_group, attachments, custom_icons, inner_decryptor)?;
+                    g.xml_to_db_handle(new_group, custom_icons, inner_decryptor)?;
                 }
                 GroupOrEntry::Entry(e) => {
                     let new_entry = target.add_entry_with_id(EntryId::from_uuid(e.uuid.0))?;
-                    e.xml_to_db_handle(new_entry, attachments, custom_icons, inner_decryptor)?;
+                    e.xml_to_db_handle(new_entry, custom_icons, inner_decryptor)?;
                 }
             }
         }
@@ -127,7 +124,6 @@ impl Group {
         Ok(())
     }
 
-    #[cfg(feature = "save_kdbx4")]
     pub(crate) fn db_to_xml(
         source: crate::db::GroupRef<'_>,
         inner_cipher: &mut dyn Cipher,

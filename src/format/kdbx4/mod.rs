@@ -1,4 +1,3 @@
-#[cfg(feature = "save_kdbx4")]
 mod dump;
 mod parse;
 
@@ -9,13 +8,11 @@ use crate::{
     format::variant_dictionary::VariantDictionary,
 };
 
-#[cfg(feature = "save_kdbx4")]
 pub(crate) use crate::format::kdbx4::dump::dump_kdbx4;
 pub(crate) use crate::format::kdbx4::parse::{decrypt_kdbx4, parse_kdbx4};
 
 pub use crate::format::kdbx4::parse::{Kdbx4InnerHeaderError, Kdbx4OpenError, Kdbx4OuterHeaderError};
 
-#[cfg(feature = "save_kdbx4")]
 /// Size for a master seed in bytes
 pub const HEADER_MASTER_SEED_SIZE: usize = 32;
 
@@ -60,13 +57,12 @@ struct KDBX4InnerHeader {
     inner_random_stream_key: Zeroizing<Vec<u8>>,
 }
 
-#[cfg(feature = "save_kdbx4")]
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod kdbx4_tests {
     use super::*;
 
-    use crate::db::{fields, Value};
+    use crate::db::fields;
     use crate::format::kdbx4::dump::dump_kdbx4;
     use crate::format::DatabaseVersion;
     use crate::{
@@ -75,37 +71,6 @@ mod kdbx4_tests {
         format::KDBX4_CURRENT_MINOR_VERSION,
         key::DatabaseKey,
     };
-
-    #[cfg(feature = "challenge_response")]
-    #[test]
-    fn test_with_challenge_response() {
-        let mut db = Database::new();
-
-        db.root_mut().add_entry();
-        db.root_mut().add_entry();
-        db.root_mut().add_entry();
-
-        let mut password_bytes: Vec<u8> = vec![];
-        let mut password: String = "".to_string();
-        password_bytes.resize(40, 0);
-        getrandom::fill(&mut password_bytes).unwrap();
-        for random_char in password_bytes {
-            password += &std::char::from_u32(u32::from(random_char)).unwrap().to_string();
-        }
-
-        let db_key = DatabaseKey::new()
-            .with_password(&password)
-            .with_challenge_response_key(crate::key::ChallengeResponseKey::LocalChallenge(
-                "0102030405060708090a0b0c0d0e0f1011121314".to_string(),
-            ));
-
-        let mut encrypted_db = Vec::new();
-        dump_kdbx4(&db, &db_key, &mut encrypted_db).unwrap();
-
-        let decrypted_db = parse_kdbx4(&encrypted_db, &db_key).unwrap();
-
-        assert_eq!(decrypted_db.num_entries(), 3);
-    }
 
     fn test_with_config(config: DatabaseConfig) {
         let mut db = Database::with_config(config);
@@ -192,61 +157,6 @@ mod kdbx4_tests {
                 }
             }
         }
-    }
-
-    #[test]
-    pub fn test_attachments() {
-        let mut db = Database::new();
-
-        db.root_mut().add_entry().edit(|e| {
-            e.set_unprotected(fields::TITLE, "Demo entry");
-
-            e.add_attachment("file1.txt", Value::protected(vec![0x01, 0x02, 0x03, 0x04]));
-            e.add_attachment("file2.txt", Value::unprotected(vec![0x04, 0x03, 0x02, 0x01]));
-        });
-
-        let db_key = DatabaseKey::new().with_password("test");
-
-        let mut encrypted_db = Vec::new();
-        dump_kdbx4(&db, &db_key, &mut encrypted_db).unwrap();
-
-        let decrypted_db = parse_kdbx4(&encrypted_db, &db_key).unwrap();
-
-        assert_eq!(decrypted_db.num_entries(), 1);
-
-        let root = decrypted_db.root();
-
-        let entry = root.entry_by_name("Demo entry").unwrap();
-
-        assert_eq!(entry.attachments().count(), 2);
-
-        assert!(entry.attachment_by_name("file1.txt").is_some());
-        assert!(entry.attachment_by_name("file1.txt").unwrap().is_protected());
-        assert_eq!(
-            entry.attachment_by_name("file1.txt").unwrap().get(),
-            &[0x01, 0x02, 0x03, 0x04]
-        );
-
-        assert!(entry.attachment_by_name("file2.txt").is_some());
-        assert!(!entry.attachment_by_name("file2.txt").unwrap().is_protected());
-        assert_eq!(
-            entry.attachment_by_name("file2.txt").unwrap().get(),
-            &[0x04, 0x03, 0x02, 0x01]
-        );
-
-        // attachments_named() yields (name, AttachmentRef) pairs, allowing callers
-        // to recover the per-entry filename without a separate lookup.
-        let mut seen = std::collections::HashSet::new();
-        for (name, attachment) in entry.attachments_named() {
-            let expected: &[u8] = match name {
-                "file1.txt" => &[0x01, 0x02, 0x03, 0x04],
-                "file2.txt" => &[0x04, 0x03, 0x02, 0x01],
-                _ => panic!("unexpected attachment name: {}", name),
-            };
-            assert_eq!(attachment.get(), expected);
-            assert!(seen.insert(name.to_owned()), "duplicate name: {}", name);
-        }
-        assert_eq!(seen.len(), 2);
     }
 
     #[test]

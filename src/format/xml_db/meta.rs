@@ -1,14 +1,11 @@
 use base64::{engine::general_purpose as base64_engine, Engine as _};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
-use zeroize::Zeroizing;
 
 use crate::{
-    compression::Compression,
     db::Color,
     format::xml_db::{
         custom_serde::{cs_base64, cs_opt_bool, cs_opt_fromstr, cs_opt_string},
-        entry::UnprotectError,
         timestamp::Timestamp,
         UUID,
     },
@@ -147,7 +144,6 @@ impl From<Meta> for crate::db::Meta {
     }
 }
 
-#[cfg(feature = "save_kdbx4")]
 impl From<crate::db::Meta> for Meta {
     fn from(db: crate::db::Meta) -> Self {
         Self {
@@ -212,36 +208,6 @@ pub struct Binary {
     pub protected: Option<bool>,
 }
 
-impl Binary {
-    pub(crate) fn xml_to_db(
-        self,
-        inner_decryptor: &mut dyn crate::crypt::ciphers::Cipher,
-    ) -> Result<crate::db::Value<Vec<u8>>, UnprotectError> {
-        let mut data = Zeroizing::new(base64_engine::STANDARD.decode(self.value)?);
-        let protected = self.protected.unwrap_or(false);
-
-        if protected {
-            data = inner_decryptor.decrypt(&data)?;
-        }
-
-        // A self-closing element carries no gzip stream even when marked Compressed.
-        if self.compressed.unwrap_or(false) && !data.is_empty() {
-            data = crate::compression::GZipCompression.decompress(&data)?;
-        }
-
-        // Move the bytes out; the Value owns the only live copy, and the emptied Zeroizing has nothing to wipe.
-        let data = std::mem::take(&mut *data);
-
-        let data = if protected {
-            crate::db::Value::protected(data)
-        } else {
-            crate::db::Value::unprotected(data)
-        };
-
-        Ok(data)
-    }
-}
-
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct CustomData {
@@ -269,7 +235,6 @@ impl CustomData {
             .collect()
     }
 
-    #[cfg(feature = "save_kdbx4")]
     fn db_to_xml(db: &[(String, crate::db::CustomDataItem)]) -> Self {
         let items = db
             .iter()

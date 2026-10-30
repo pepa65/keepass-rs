@@ -60,7 +60,6 @@ pub(crate) fn read_hmac_block_stream(
     Ok(out)
 }
 
-#[cfg(feature = "save_kdbx4")]
 /// Write a raw buffer as a HMAC block stream
 pub(crate) fn write_hmac_block_stream(data: &[u8], key: &GenericArray<u8, U64>) -> Vec<u8> {
     let mut out = Vec::new();

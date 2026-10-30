@@ -8,8 +8,7 @@ use uuid::Uuid;
 
 use crate::{
     db::{
-        attachment::{AttachmentMut, AttachmentRef},
-        fields, Attachment, AttachmentId, AutoType, Color, CustomDataItem, CustomIcon, CustomIconId,
+        fields, AutoType, Color, CustomDataItem, CustomIcon, CustomIconId,
         CustomIconMut, CustomIconNotFoundError, CustomIconRef, GroupId, GroupMut, GroupRef, History, Icon,
         Times, Value,
     },
@@ -18,7 +17,7 @@ use crate::{
 
 /// Unique identifier for an [Entry]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "serialization", derive(serde::Serialize))]
+#[derive(serde::Serialize)]
 pub struct EntryId(Uuid);
 
 impl EntryId {
@@ -50,7 +49,7 @@ impl From<Uuid> for EntryId {
 
 /// A database entry containing several key-value fields.
 #[derive(Debug, Eq, PartialEq, Clone)]
-#[cfg_attr(feature = "serialization", derive(serde::Serialize))]
+#[derive(serde::Serialize)]
 pub struct Entry {
     pub(crate) id: EntryId,
     pub(crate) parent: GroupId,
@@ -86,9 +85,6 @@ pub struct Entry {
     /// whether to enable password quality check for this entry
     pub quality_check: bool,
 
-    /// attachments associated with this entry, mapped by attachment name to attachment ID
-    pub(crate) attachments: HashMap<String, AttachmentId>,
-
     /// Identifier of the group that the Entry was previously contained in
     pub(crate) previous_parent_group: Option<GroupId>,
 
@@ -115,7 +111,6 @@ impl Entry {
             background_color: None,
             override_url: None,
             quality_check: true,
-            attachments: HashMap::new(),
             history: Some(History::default()),
             previous_parent_group: None,
         }
@@ -245,42 +240,6 @@ impl EntryRef<'_> {
         self.database
     }
 
-    /// Get a reference to an attachment by id, if it exists.
-    pub fn attachment(&self, id: AttachmentId) -> Option<AttachmentRef<'_>> {
-        self.attachments
-            .values()
-            .find(|&attachment_id| *attachment_id == id)
-            .cloned()
-            .map(move |attachment_id| AttachmentRef::new(self.database, attachment_id))
-    }
-
-    /// Get a reference to an attachment by name, if it exists.
-    pub fn attachment_by_name(&self, name: &str) -> Option<AttachmentRef<'_>> {
-        self.attachments
-            .get(name)
-            .cloned()
-            .map(move |attachment_id| AttachmentRef::new(self.database, attachment_id))
-    }
-
-    /// Get an iterator over the attachments of this entry.
-    pub fn attachments(&self) -> impl Iterator<Item = AttachmentRef<'_>> {
-        self.attachments
-            .values()
-            .cloned()
-            .map(move |attachment_id| AttachmentRef::new(self.database, attachment_id))
-    }
-
-    /// Get an iterator over the (name, attachment) pairs of this entry.
-    ///
-    /// Useful when callers need both the attachment's filename (the key under
-    /// which it is stored on the entry) and its data, since [`AttachmentRef`]
-    /// itself does not expose the per-entry name.
-    pub fn attachments_named(&self) -> impl Iterator<Item = (&str, AttachmentRef<'_>)> {
-        self.attachments.iter().map(move |(name, &attachment_id)| {
-            (name.as_str(), AttachmentRef::new(self.database, attachment_id))
-        })
-    }
-
     /// Get the custom icon of this entry, if it exists and is a custom icon.
     pub fn custom_icon(&self) -> Option<CustomIconRef<'_>> {
         if let Some(Icon::Custom(custom_icon_id)) = self.icon {
@@ -403,99 +362,6 @@ impl EntryMut<'_> {
             .and_then(move |id| self.database_mut().group_mut(id))
     }
 
-    /// Get a mutable reference to an attachment by id, if it exists.
-    pub fn attachment_mut(&mut self, id: AttachmentId) -> Option<AttachmentMut<'_>> {
-        self.attachments
-            .values()
-            .find(|&attachment_id| *attachment_id == id)
-            .cloned()
-            .map(move |attachment_id| AttachmentMut::new(self.database, attachment_id))
-    }
-
-    /// Get a mutable reference to an attachment by name, if it exists.
-    pub fn attachment_by_name_mut(&mut self, name: &str) -> Option<AttachmentMut<'_>> {
-        self.attachments
-            .get(name)
-            .cloned()
-            .map(move |attachment_id| AttachmentMut::new(self.database, attachment_id))
-    }
-
-    /// Apply a closure to each attachment of this entry, with mutable access.
-    pub fn foreach_attachment_mut<F>(&mut self, mut f: F)
-    where
-        F: FnMut(AttachmentMut<'_>),
-    {
-        let attachments: Vec<AttachmentId> = self.attachments.values().copied().collect();
-        for attachment_id in attachments {
-            f(AttachmentMut::new(self.database, attachment_id));
-        }
-    }
-
-    /// Add an attachment to this entry with the given name and data.
-    pub fn add_attachment(&mut self, name: impl Into<String>, data: Value<Vec<u8>>) -> AttachmentMut<'_> {
-        let id = AttachmentId::next_free(self.database);
-
-        let entries: HashSet<(EntryId, Option<usize>)> = vec![(self.id, None)].into_iter().collect();
-
-        self.database
-            .attachments
-            .insert(id, Attachment { id, entries, data });
-
-        if let Some(old_id) = self.attachments.insert(name.into(), id) {
-            // if there was an old attachment with this name, remove it
-            self.remove_attachment_by_id(old_id);
-        }
-
-        AttachmentMut::new(self.database, id)
-    }
-
-    /// Remove an attachment by name from this entry.
-    ///
-    /// If it was the last reference to the attachment, remove it from the database.
-    pub fn remove_attachment_by_name(&mut self, name: &str) {
-        let id = self.id;
-
-        // remove the attachment reference from this entry
-        if let Some(attachment_id) = self.attachments.remove(name) {
-            if let Some(mut attachment) = self.database.attachment_mut(attachment_id) {
-                attachment.entries.retain(|&(entry_id, _)| entry_id != id);
-
-                // if this was the last entry referencing the attachment, remove it from the database
-                if attachment.entries.is_empty() {
-                    attachment.remove();
-                }
-            }
-        }
-    }
-
-    /// Remove an attachment by id from this entry.
-    ///
-    /// If it was the last reference to the attachment, remove it from the database.
-    pub fn remove_attachment_by_id(&mut self, attachment_id: AttachmentId) {
-        let id = self.id;
-
-        // remove the attachment reference from this entry
-        let mut names_to_remove = Vec::new();
-        for (name, &att_id) in &self.attachments {
-            if att_id == attachment_id {
-                names_to_remove.push(name.clone());
-            }
-        }
-
-        for name in names_to_remove {
-            self.attachments.remove(&name);
-        }
-
-        if let Some(mut attachment) = self.database.attachment_mut(attachment_id) {
-            attachment.entries.retain(|&(entry_id, _)| entry_id != id);
-
-            // if this was the last entry referencing the attachment, remove it from the database
-            if attachment.entries.is_empty() {
-                attachment.remove();
-            }
-        }
-    }
-
     /// Remove the icon from this entry, if it exists.
     pub fn set_icon_none(&mut self) {
         let id = self.id;
@@ -603,7 +469,7 @@ impl EntryMut<'_> {
         self.database
     }
 
-    /// Remove this entry from the database, including all its attachments.
+    /// Remove this entry from the database
     #[allow(clippy::expect_used, clippy::missing_panics_doc)] // the entry and parent should always be found
     pub fn remove(mut self) {
         let id = self.id;
@@ -616,27 +482,6 @@ impl EntryMut<'_> {
         for i in 0..history_len {
             if let Some(mut hist_entry) = self.historical(i) {
                 hist_entry.set_icon_none();
-            }
-        }
-
-        // remove references to this entry from the attachments of every version of it:
-        // a file only an older version used would otherwise stay in the database
-        let mut attachment_ids: Vec<AttachmentId> = self.attachments.values().copied().collect();
-        if let Some(history) = &self.history {
-            for version in &history.entries {
-                attachment_ids.extend(version.attachments.values().copied());
-            }
-        }
-        attachment_ids.sort_by_key(|attachment_id| attachment_id.id());
-        attachment_ids.dedup();
-        for attachment_id in attachment_ids {
-            if let Some(mut attachment) = self.database.attachment_mut(attachment_id) {
-                attachment.entries.retain(|&(entry_id, _)| entry_id != id);
-
-                // if this was the last entry referencing the attachment, remove it from the database
-                if attachment.entries.is_empty() {
-                    attachment.remove();
-                }
             }
         }
 
@@ -766,15 +611,6 @@ impl EntryTrack<'_> {
         this.times.last_modification = Some(Times::now());
     }
 
-    /// Add an attachment, tracking changes.
-    pub fn add_attachment(&mut self, name: impl Into<String>, data: Value<Vec<u8>>) -> AttachmentMut<'_> {
-        self.times.last_modification = Some(Times::now());
-        let mut this = self.as_mut();
-        let id = this.add_attachment(name, data).id;
-
-        AttachmentMut::new(self.database, id)
-    }
-
     /// Remove the entry's icon, tracking changes.
     pub fn set_icon_none(&mut self) {
         let mut this = self.as_mut();
@@ -858,7 +694,7 @@ mod tests {
 
     use super::EntryId;
     use crate::{
-        db::{fields, Value},
+        db::fields,
         Database,
     };
 
@@ -886,7 +722,6 @@ mod tests {
             })
             .id();
 
-        assert_eq!(db.num_attachments(), 0);
         assert_eq!(db.num_entries(), 1);
 
         assert_eq!(
@@ -903,21 +738,13 @@ mod tests {
                 crate::db::Value::unprotected(format!("modified_{}", e.get(fields::USERNAME).unwrap())),
             );
 
-            e.add_attachment("Attachment 1", Value::protected(b"Attachment data".to_vec()));
         });
 
-        assert_eq!(db.num_attachments(), 1);
         assert_eq!(db.num_entries(), 1);
         assert_eq!(
             db.entry(entry_id).unwrap().history.clone().unwrap().entries.len(),
             1
         );
-
-        assert!(db
-            .entry(entry_id)
-            .unwrap()
-            .attachments
-            .contains_key("Attachment 1"));
 
         assert_eq!(
             db.entry(entry_id).unwrap().get(fields::TITLE).unwrap(),
@@ -931,15 +758,8 @@ mod tests {
             .move_to(crate::db::GroupId::new())
             .is_err());
 
-        db.entry_mut(entry_id).unwrap().edit(|e| {
-            let mut att = e.attachment_by_name_mut("Attachment 1").unwrap();
-
-            att.data = Value::unprotected(b"Modified attachment data".to_vec());
-        });
-
         db.entry_mut(entry_id).unwrap().remove();
 
         assert_eq!(db.num_entries(), 0);
-        assert_eq!(db.num_attachments(), 0);
     }
 }

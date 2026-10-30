@@ -5,11 +5,10 @@ use thiserror::Error;
 
 use serde::{Deserialize, Serialize};
 
-#[cfg(feature = "save_kdbx4")]
 use crate::format::xml_db::tags::join_tags;
 use crate::{
     crypt::{ciphers::Cipher, CryptographyError},
-    db::{AttachmentId, Color, EntryId, EntryMut, GroupId},
+    db::{Color, EntryId, EntryMut, GroupId},
     format::xml_db::{
         custom_serde::{cs_bool, cs_opt_bool, cs_opt_fromstr, cs_opt_string},
         meta::CustomData,
@@ -59,9 +58,6 @@ pub struct Entry {
     #[serde(default, rename = "String")]
     pub string_fields: Vec<StringField>,
 
-    #[serde(default, rename = "Binary")]
-    pub binary_fields: Vec<BinaryField>,
-
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auto_type: Option<AutoType>,
 
@@ -82,7 +78,6 @@ impl Entry {
     pub(crate) fn xml_to_db_handle(
         self,
         mut target: crate::db::EntryMut<'_>,
-        attachments: &HashMap<crate::db::AttachmentId, crate::db::Attachment>,
         custom_icons: &HashMap<crate::db::CustomIconId, crate::db::CustomIcon>,
         inner_decryptor: &mut dyn Cipher,
     ) -> Result<(), UnprotectError> {
@@ -116,13 +111,6 @@ impl Entry {
             target.fields.insert(field.key, value);
         }
 
-        for field in self.binary_fields {
-            let id = AttachmentId::new(field.value.value_ref);
-            if attachments.contains_key(&id) {
-                target.attachments.insert(field.key.clone(), id);
-            }
-        }
-
         target.autotype = self.auto_type.map(|at| at.into());
 
         if let Some(h) = self.history {
@@ -139,7 +127,7 @@ impl Entry {
                 }
 
                 let historical = EntryMut::new_historical(target.database_mut(), id, Some(i));
-                e.xml_to_db_handle(historical, attachments, custom_icons, inner_decryptor)?;
+                e.xml_to_db_handle(historical, custom_icons, inner_decryptor)?;
             }
         }
 
@@ -154,7 +142,6 @@ impl Entry {
         Ok(())
     }
 
-    #[cfg(feature = "save_kdbx4")]
     pub(crate) fn db_to_xml(
         db: crate::db::EntryRef<'_>,
         inner_encryptor: &mut dyn Cipher,
@@ -188,16 +175,6 @@ impl Entry {
             });
         }
 
-        let mut binary_fields = Vec::with_capacity(db.attachments.len());
-        for (key, attachment) in &db.attachments {
-            binary_fields.push(BinaryField {
-                key: key.clone(),
-                value: BinaryValue {
-                    value_ref: attachment.id(),
-                },
-            });
-        }
-
         let history = if let Some(h) = db.history.as_ref() {
             let entries = (0..h.entries.len())
                 .filter_map(|i| Some(Entry::db_to_xml(db.historical(i)?, inner_encryptor)))
@@ -224,7 +201,6 @@ impl Entry {
             tags: join_tags(&db.tags),
             times: Some(db.times.clone().into()),
             string_fields,
-            binary_fields,
             auto_type: db.autotype.as_ref().map(|at| at.clone().into()),
             history,
             custom_data,
@@ -304,19 +280,6 @@ impl Serialize for StringValue {
             state.end()
         }
     }
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "PascalCase")]
-pub struct BinaryField {
-    pub key: String,
-    pub value: BinaryValue,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct BinaryValue {
-    #[serde(rename = "@Ref")]
-    pub value_ref: usize,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -475,31 +438,6 @@ mod tests {
     }
 
     #[test]
-    fn test_deserialize_binary_field() {
-        let xml = r#"<Binary>
-            <Key>Attachment</Key>
-            <Value Ref="1"/>
-        </Binary>"#;
-
-        let deserialized: Test<BinaryField> = quick_xml::de::from_str(xml).unwrap();
-        assert_eq!(deserialized.0.key, "Attachment");
-        assert_eq!(deserialized.0.value.value_ref, 1);
-    }
-
-    #[test]
-    fn test_serialize_binary_field() {
-        let binary_field = BinaryField {
-            key: "Attachment".to_string(),
-            value: BinaryValue { value_ref: 1 },
-        };
-        let serialized = quick_xml::se::to_string(&Test(binary_field)).unwrap();
-        assert_eq!(
-            serialized,
-            r#"<Test><Key>Attachment</Key><Value Ref="1"/></Test>"#
-        );
-    }
-
-    #[test]
     fn test_deserialize_autotype() {
         let xml = r#"<AutoType>
             <Enabled>True</Enabled>
@@ -557,10 +495,6 @@ mod tests {
                 <Key>Title</Key>
                 <Value>Example Title</Value>
             </String>
-            <Binary>
-                <Key>Attachment</Key>
-                <Value Ref="1"/>
-            </Binary>
             <AutoType>
                 <Enabled>True</Enabled>
                 <DataTransferObfuscation>0</DataTransferObfuscation>
@@ -584,9 +518,6 @@ mod tests {
             deserialized.0.string_fields[0].value.value.as_ref().unwrap(),
             "Example Title"
         );
-        assert_eq!(deserialized.0.binary_fields.len(), 1);
-        assert_eq!(deserialized.0.binary_fields[0].key, "Attachment");
-        assert_eq!(deserialized.0.binary_fields[0].value.value_ref, 1);
         assert!(deserialized.0.auto_type.is_some());
         let autotype = deserialized.0.auto_type.unwrap();
         assert!(autotype.enabled);
@@ -622,6 +553,19 @@ mod tests {
         assert!(deserialized.0.override_url.is_none());
         assert!(deserialized.0.tags.is_none());
         assert!(deserialized.0.string_fields.is_empty());
-        assert!(deserialized.0.binary_fields.is_empty());
+    }
+
+    #[test]
+    fn ignores_binary_fields() {
+    let xml = r#"<Entry>
+            <UUID>AAAAAAAAAAAAAAAAAAAAAA==</UUID>
+            <Binary>
+                <Key>Attachment</Key>
+                <Value Ref="1"/>
+            </Binary>
+        </Entry>"#;
+
+        let entry: Entry = quick_xml::de::from_str(xml).unwrap();
+        assert!(entry.string_fields.is_empty());
     }
 }

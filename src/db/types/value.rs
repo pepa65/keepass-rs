@@ -84,7 +84,6 @@ impl<T: Zeroize> Deref for Value<T> {
     }
 }
 
-#[cfg(feature = "serialization")]
 impl<T: Zeroize + serde::Serialize> serde::Serialize for Value<T> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where

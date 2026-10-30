@@ -28,9 +28,9 @@ use super::KDBX4InnerHeader;
 
 /// Open, decrypt and parse a KeePass database from a source and key elements
 pub(crate) fn parse_kdbx4(data: &[u8], db_key: &DatabaseKey) -> Result<Database, DatabaseOpenError> {
-    let (config, header_attachments, mut inner_decryptor, xml) = decrypt_kdbx4(data, db_key)?;
+    let (config, _header_attachments, mut inner_decryptor, xml) = decrypt_kdbx4(data, db_key)?;
 
-    let mut db = crate::format::xml_db::parse_xml(&xml, &header_attachments, &mut *inner_decryptor)
+    let mut db = crate::format::xml_db::parse_xml(&xml, &mut *inner_decryptor)
         .map_err(|e| DatabaseOpenError::Format(DatabaseFormatError::Kdbx4(Kdbx4OpenError::Xml(e))))?;
 
     db.config = config;
@@ -84,9 +84,6 @@ pub(crate) fn decrypt_kdbx4(
             Kdbx4OpenError::HeaderHashMismatch,
         )));
     }
-
-    #[cfg(feature = "challenge_response")]
-    let db_key = db_key.clone().perform_challenge(&outer_header.kdf_seed)?;
 
     // derive master key from composite key, transform_seed, transform_rounds and master_seed
     let composite_key = {

@@ -1,6 +1,6 @@
 /// An AutoType setting associated with an [Entry][crate::db::Entry]
 #[derive(Debug, Default, Eq, PartialEq, Clone)]
-#[cfg_attr(feature = "serialization", derive(serde::Serialize))]
+#[derive(serde::Serialize)]
 pub struct AutoType {
     /// Whether AutoType is enabled for this entry
     pub enabled: bool,
@@ -19,7 +19,7 @@ pub struct AutoType {
 
 /// A window association associated with an [AutoType] setting
 #[derive(Debug, Default, Eq, PartialEq, Clone)]
-#[cfg_attr(feature = "serialization", derive(serde::Serialize))]
+#[derive(serde::Serialize)]
 pub struct AutoTypeAssociation {
     /// The title of the window to match with this entry. The string MUST support * as a wildcard character.
     pub window: String,
@@ -31,7 +31,7 @@ pub struct AutoTypeAssociation {
 
 /// Obfuscation methods for auto-type data transfer.
 #[derive(Debug, Eq, PartialEq, Clone)]
-#[cfg_attr(feature = "serialization", derive(serde::Serialize))]
+#[derive(serde::Serialize)]
 pub enum DataTransferObfuscation {
     /// No obfuscation. The auto-type sequence is sent as-is.
     None,

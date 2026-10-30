@@ -6,7 +6,7 @@ use chrono::NaiveDateTime;
 /// precision, all times are stored as [NaiveDateTime] with second precision.
 #[derive(Debug, Default, PartialEq, Eq, Clone)]
 #[non_exhaustive]
-#[cfg_attr(feature = "serialization", derive(serde::Serialize))]
+#[derive(serde::Serialize)]
 pub struct Times {
     /// The time of creation
     pub creation: Option<NaiveDateTime>,

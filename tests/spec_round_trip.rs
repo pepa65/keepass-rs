@@ -1,5 +1,4 @@
 //! tests for round-tripping of generated databases
-#![cfg(feature = "save_kdbx4")]
 #![forbid(unsafe_code)]
 #![allow(clippy::indexing_slicing, clippy::expect_used, clippy::unwrap_used)]
 
@@ -61,36 +60,6 @@ fn matrix_round_trip_rich_database_subset() {
             "{} root group count",
             combo.label
         );
-        assert_eq!(
-            parsed.num_attachments(),
-            3,
-            "{} num_attachments mismatch",
-            combo.label
-        );
-
-        let root = parsed.root();
-        let entry = root
-            .entries()
-            .find(|e| e.attachment_by_name("small.bin").is_some())
-            .unwrap_or_else(|| panic!("{}: no entry holds small.bin", combo.label));
-        let small = entry.attachment_by_name("small.bin").expect("small.bin present");
-        assert_eq!(small.data.get().as_slice(), b"small", "{} small.bin", combo.label);
-        let noise = entry.attachment_by_name("noise.bin").expect("noise.bin present");
-        assert_eq!(noise.data.get().len(), 4096, "{} noise.bin len", combo.label);
-        let nonutf8 = entry
-            .attachment_by_name("nonutf8.bin")
-            .expect("nonutf8.bin present");
-        assert_eq!(
-            nonutf8.data.get().as_slice(),
-            &[0xFF, 0xFE, 0xFD, 0x80, 0x81, 0x82, 0x00, 0x01],
-            "{} nonutf8 bytes",
-            combo.label
-        );
-
-        let names: Vec<String> = entry.attachments_named().map(|(n, _)| n.to_string()).collect();
-        for n in ["small.bin", "noise.bin", "nonutf8.bin"] {
-            assert!(names.contains(&n.to_string()), "{} {} name", combo.label, n);
-        }
 
         assert!(parsed.meta.custom_data.contains_key("fixture.kind"));
         assert_eq!(parsed.meta.recyclebin_enabled, Some(true));

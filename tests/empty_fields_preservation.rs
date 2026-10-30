@@ -3,7 +3,6 @@
 //! To preserve the original database structure, a round trip should retain
 //! explicitly present empty fields and shouldn't
 //! add empty default fields (UserName, Password, etc.).
-#![cfg(feature = "save_kdbx4")]
 
 mod common;
 

@@ -16,27 +16,24 @@ pub mod timestamp;
 use serde::{Deserialize, Serialize, Serializer};
 
 use base64::{engine::general_purpose as base64_engine, Engine as _};
-use std::collections::{HashMap, HashSet};
 use thiserror::Error;
 use uuid::Uuid;
 
 use crate::{
     crypt::ciphers::Cipher,
-    db::{GroupId, Value},
+    db::GroupId,
     format::xml_db::{
         custom_serde::cs_opt_string, entry::UnprotectError, group::Group, meta::Meta, timestamp::Timestamp,
     },
 };
-#[cfg(feature = "save_kdbx4")]
 use crate::{crypt::CryptographyError, db::DatabaseSaveError};
 
 pub fn parse_xml(
     data: &[u8],
-    header_attachments: &[Value<Vec<u8>>],
     inner_decryptor: &mut dyn Cipher,
 ) -> Result<crate::db::Database, ParseXmlError> {
     let kdbx: KeePassFile = quick_xml::de::from_reader(data)?;
-    Ok(kdbx.xml_to_db(inner_decryptor, header_attachments)?)
+    Ok(kdbx.xml_to_db(inner_decryptor)?)
 }
 
 /// Errors that can occur during parsing of the inner XML database of a KDBX file
@@ -53,37 +50,14 @@ pub enum ParseXmlError {
     Unprotect(#[from] UnprotectError),
 }
 
-#[cfg(feature = "save_kdbx4")]
 #[allow(clippy::type_complexity)]
 pub fn to_xml(
     db: &crate::db::Database,
     inner_encryptor: &mut dyn Cipher,
-) -> Result<(Vec<u8>, Vec<crate::db::Value<Vec<u8>>>), DatabaseSaveError> {
-    // The file refers to attachments by their position in the inner header,
-    // so the IDs must run 0..n; removing an attachment leaves a gap.
-    let renumbered;
-    let db = if db.has_dense_attachment_ids() {
-        db
-    } else {
-        renumbered = db.with_dense_attachment_ids();
-        &renumbered
-    };
+) -> Result<Vec<u8>, DatabaseSaveError> {
     let kdbx = KeePassFile::db_to_xml(db, inner_encryptor)?;
-    let xml = quick_xml::se::to_string_with_root("KeePassFile", &kdbx)?
-        .as_bytes()
-        .to_vec();
-
-    let mut attachments: Vec<(usize, Value<Vec<u8>>)> = db
-        .attachments
-        .iter()
-        .map(|(id, attachment)| (id.id(), attachment.data.clone()))
-        .collect();
-
-    attachments.sort_by_key(|(id, _)| *id);
-
-    let attachments = attachments.into_iter().map(|(_, data)| data).collect();
-
-    Ok((xml, attachments))
+    let xml = quick_xml::se::to_string_with_root("KeePassFile", &kdbx)?.into_bytes();
+    Ok(xml)
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -98,41 +72,8 @@ impl KeePassFile {
     fn xml_to_db(
         mut self,
         inner_decryptor: &mut dyn Cipher,
-        header_attachments: &[Value<Vec<u8>>],
     ) -> Result<crate::db::Database, UnprotectError> {
         let mut db = crate::db::Database::new_with_root_id(GroupId::from_uuid(self.root.group.uuid.0));
-
-        let mut attachments = HashMap::new();
-
-        // convert header attachments (KDBX4-style) to database attachments
-        for (i, header_attachment) in header_attachments.iter().enumerate() {
-            let attachment = crate::db::Attachment {
-                id: crate::db::AttachmentId::new(i),
-                entries: HashSet::new(),
-                data: header_attachment.clone(),
-            };
-            attachments.insert(attachment.id, attachment);
-        }
-
-        // convert XML attachments (KDBX3-style) to database attachments
-        if let Some(binaries) = self.meta.binaries.take() {
-            for binary in binaries.binaries {
-                // Entries point at the pool by the ID attribute (`<Value Ref="N"/>`),
-                // so the attachment has to keep that ID.
-                let id = crate::db::AttachmentId::new(binary.id);
-                let data = binary.xml_to_db(inner_decryptor)?;
-
-                attachments.insert(
-                    id,
-                    crate::db::Attachment {
-                        id,
-                        entries: HashSet::new(),
-                        data,
-                    },
-                );
-            }
-        }
-
         let custom_icons = self
             .meta
             .custom_icons
@@ -164,9 +105,8 @@ impl KeePassFile {
 
         self.root
             .group
-            .xml_to_db_handle(db.root_mut(), &attachments, &custom_icons, inner_decryptor)?;
+            .xml_to_db_handle(db.root_mut(), &custom_icons, inner_decryptor)?;
 
-        db.attachments = attachments;
         db.custom_icons = custom_icons;
 
         // Re-populate CustomIcon back-reference sets.
@@ -218,7 +158,6 @@ impl KeePassFile {
     }
 
     /// Convert from database representation to XML representation.
-    #[cfg(feature = "save_kdbx4")]
     fn db_to_xml(db: &crate::db::Database, inner_cipher: &mut dyn Cipher) -> Result<Self, CryptographyError> {
         use crate::format::xml_db::meta::Icon;
 
@@ -366,7 +305,6 @@ mod tests {
         assert!(deleted_object.deletion_time.is_some());
     }
 
-    #[cfg(feature = "save_kdbx4")]
     #[test]
     fn test_serialize_deletion_time_mode() {
         let xml = r#"<KeePassFile>
@@ -382,7 +320,7 @@ mod tests {
             </Root>
         </KeePassFile>"#;
         let mut cipher = crate::config::InnerCipherConfig::Plain.get_cipher(&[]).unwrap();
-        let db = parse_xml(xml.as_bytes(), &[], &mut *cipher).unwrap();
+        let db = parse_xml(xml.as_bytes(), &mut *cipher).unwrap();
         let kdbx = KeePassFile::db_to_xml(&db, &mut *cipher).unwrap();
         let xml = quick_xml::se::to_string_with_root("DeletedObjects", &kdbx.root.deleted_objects).unwrap();
         assert!(xml.contains("<DeletionTime>io8Y4g4AAAA=</DeletionTime>"));

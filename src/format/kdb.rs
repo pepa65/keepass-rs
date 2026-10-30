@@ -9,7 +9,6 @@ use crate::{
 use byteorder::{ByteOrder, LittleEndian};
 use hybrid_array::Array as GenericArray;
 use thiserror::Error;
-use zeroize::Zeroizing;
 
 use std::{collections::HashMap, convert::TryFrom};
 
@@ -236,11 +235,6 @@ fn parse_entries(
     let mut parsing_gid: Option<u32> = None;
     let mut parsing_fields: HashMap<String, Value<String>> = HashMap::new();
 
-    let mut parsing_binary_desc: Option<String> = None;
-    let mut parsing_binary_data: Option<Zeroizing<Vec<u8>>> = None;
-
-    let mut entry_attachments: HashMap<String, Zeroizing<Vec<u8>>> = HashMap::new();
-
     let mut num_entries = 0;
     while num_entries < header_num_entries {
         let field_type = data.get(0..2).ok_or(DatabaseOpenError::UnexpectedEof)?;
@@ -322,24 +316,10 @@ fn parse_entries(
             0x0009..=0x000c => {}
 
             // BinaryDesc
-            0x000d => {
-                if let Some(ref data) = parsing_binary_data {
-                    entry_attachments.insert(from_utf8(field_value), data.clone()); // Zeroizing: Clone stays wiped
-                    parsing_binary_desc = None;
-                } else {
-                    parsing_binary_desc = Some(from_utf8(field_value).into());
-                }
-            }
+            0x000d => {}
 
             // BinaryData
-            0x000e => {
-                if let Some(ref desc) = parsing_binary_desc {
-                    entry_attachments.insert(desc.clone(), field_value.to_vec().into());
-                    parsing_binary_data = None;
-                } else {
-                    parsing_binary_data = Some(field_value.to_vec().into());
-                }
-            }
+            0x000e => {}
 
             0xffff => {
                 let gid = parsing_gid.ok_or(DatabaseOpenError::Format(DatabaseFormatError::Kdb(
@@ -357,10 +337,6 @@ fn parse_entries(
 
                 let mut entry = group.add_entry();
                 entry.fields = parsing_fields.clone();
-
-                for (desc, mut data) in entry_attachments.drain() {
-                    entry.add_attachment(desc, Value::protected(std::mem::take(&mut *data)));
-                }
 
                 parsing_fields.clear();
 

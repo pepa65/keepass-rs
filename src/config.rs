@@ -6,7 +6,6 @@ use std::convert::TryFrom;
 
 pub use crate::format::DatabaseVersion;
 
-#[cfg(feature = "save_kdbx4")]
 use crate::crypt::ciphers::Cipher;
 use crate::{
     compression,
@@ -31,7 +30,7 @@ const CHA_CHA_20: u32 = 3;
 
 /// Configuration of how a database should be stored
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "serialization", derive(serde::Serialize))]
+#[derive(serde::Serialize)]
 #[non_exhaustive]
 pub struct DatabaseConfig {
     /// Version of the outer database file
@@ -74,7 +73,7 @@ impl Default for DatabaseConfig {
 
 /// Choices for outer encryption
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "serialization", derive(serde::Serialize))]
+#[derive(serde::Serialize)]
 #[non_exhaustive]
 pub enum OuterCipherConfig {
     /// Encrypt the database with AES-256 in CBC mode.
@@ -100,7 +99,6 @@ impl OuterCipherConfig {
         }
     }
 
-    #[cfg(feature = "save_kdbx4")]
     pub(crate) fn get_iv_size(&self) -> usize {
         match self {
             OuterCipherConfig::AES256 => ciphers::AES256Cipher::iv_size(),
@@ -109,7 +107,6 @@ impl OuterCipherConfig {
         }
     }
 
-    #[cfg(feature = "save_kdbx4")]
     pub(crate) fn dump(&self) -> [u8; 16] {
         match self {
             OuterCipherConfig::AES256 => CIPHERSUITE_AES256,
@@ -152,7 +149,7 @@ pub enum OuterCipherConfigError {
 
 /// Choices for encrypting protected values inside of databases
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "serialization", derive(serde::Serialize))]
+#[derive(serde::Serialize)]
 #[non_exhaustive]
 pub enum InnerCipherConfig {
     /// Don't encrypt proected values
@@ -177,7 +174,6 @@ impl InnerCipherConfig {
         }
     }
 
-    #[cfg(feature = "save_kdbx4")]
     pub(crate) fn dump(&self) -> u32 {
         match self {
             InnerCipherConfig::Plain => PLAIN,
@@ -186,7 +182,6 @@ impl InnerCipherConfig {
         }
     }
 
-    #[cfg(feature = "save_kdbx4")]
     pub(crate) fn get_key_size(&self) -> usize {
         match self {
             InnerCipherConfig::Plain => ciphers::PlainCipher::key_size(),
@@ -239,7 +234,7 @@ const KDF_ROUNDS: &str = "R";
 
 /// Choices for Key Derivation Functions (KDFs)
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "serialization", derive(serde::Serialize))]
+#[derive(serde::Serialize)]
 #[non_exhaustive]
 pub enum KdfConfig {
     /// Derive keys with repeated AES encryption
@@ -262,7 +257,7 @@ pub enum KdfConfig {
         parallelism: u32,
 
         /// The version of the Argon2 algorithm to use when deriving keys
-        #[cfg_attr(feature = "serialization", serde(serialize_with = "serialize_argon2_version"))]
+				#[serde(serialize_with = "serialize_argon2_version")]
         version: argon2::Version,
     },
 
@@ -281,21 +276,19 @@ pub enum KdfConfig {
         parallelism: u32,
 
         /// The version of the Argon2 algorithm to use when deriving keys
-        #[cfg_attr(feature = "serialization", serde(serialize_with = "serialize_argon2_version"))]
+				#[serde(serialize_with = "serialize_argon2_version")]
         version: argon2::Version,
     },
 }
 
-#[cfg(feature = "serialization")]
 fn serialize_argon2_version<S: serde::Serializer>(
     version: &argon2::Version,
     serializer: S,
-) -> Result<<S as serde::Serializer>::Ok, <S as serde::Serializer>::Error> {
+) -> Result<S::Ok, S::Error> {
     serializer.serialize_u32(version.as_u32())
 }
 
 impl KdfConfig {
-    #[cfg(feature = "save_kdbx4")]
     fn seed_size(&self) -> usize {
         match self {
             KdfConfig::Aes { .. } => 32,
@@ -306,7 +299,6 @@ impl KdfConfig {
 
     /// For writing out a database, generate a new KDF seed from the config and return the KDF
     /// and the generated seed
-    #[cfg(feature = "save_kdbx4")]
     pub(crate) fn get_kdf_and_seed(&self) -> Result<(Box<dyn kdf::Kdf>, Vec<u8>), getrandom::Error> {
         let mut kdf_seed = vec![0; self.seed_size()];
         getrandom::fill(&mut kdf_seed)?;
@@ -352,7 +344,6 @@ impl KdfConfig {
         }
     }
 
-    #[cfg(feature = "save_kdbx4")]
     pub(crate) fn to_variant_dictionary(&self, seed: &[u8]) -> VariantDictionary {
         let mut vd = VariantDictionary::new();
 
@@ -486,7 +477,7 @@ pub enum KdfConfigError {
 
 /// Choices of compression algorithm
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "serialization", derive(serde::Serialize))]
+#[derive(serde::Serialize)]
 #[non_exhaustive]
 pub enum CompressionConfig {
     /// Don't compress the inner data
@@ -504,7 +495,6 @@ impl CompressionConfig {
         }
     }
 
-    #[cfg(feature = "save_kdbx4")]
     pub(crate) fn dump(&self) -> [u8; 4] {
         match self {
             CompressionConfig::None => [0, 0, 0, 0],

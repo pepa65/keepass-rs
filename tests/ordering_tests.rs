@@ -1,5 +1,4 @@
 //! Regression test for preserving groups and entries order across save/open.
-#![cfg(feature = "save_kdbx4")]
 
 mod common;
 

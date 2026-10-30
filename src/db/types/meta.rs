@@ -7,7 +7,7 @@ use crate::db::{Color, CustomDataItem};
 
 /// Database metadata
 #[derive(Debug, Default, Eq, PartialEq, Clone)]
-#[cfg_attr(feature = "serialization", derive(serde::Serialize))]
+#[derive(serde::Serialize)]
 pub struct Meta {
     /// the program that generated the database file.
     pub generator: Option<String>,
@@ -84,7 +84,7 @@ pub struct Meta {
 
 /// Database memory protection settings
 #[derive(Debug, PartialEq, Eq, Clone)]
-#[cfg_attr(feature = "serialization", derive(serde::Serialize))]
+#[derive(serde::Serialize)]
 pub struct MemoryProtection {
     /// Whether titles should be protected
     pub protect_title: bool,

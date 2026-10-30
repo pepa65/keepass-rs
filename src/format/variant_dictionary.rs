@@ -1,7 +1,5 @@
-#[cfg(feature = "save_kdbx4")]
 use byteorder::WriteBytesExt;
 use byteorder::{ByteOrder, LittleEndian};
-#[cfg(feature = "save_kdbx4")]
 use std::io::Write;
 use std::{
     collections::HashMap,
@@ -9,7 +7,6 @@ use std::{
 };
 use thiserror::Error;
 
-#[cfg(feature = "save_kdbx4")]
 use crate::format::io::WriteLengthTaggedExt;
 
 pub const VARIANT_DICTIONARY_VERSION: u16 = 0x100;
@@ -25,7 +22,7 @@ pub const BYTES_TYPE_ID: u8 = 0x42;
 
 /// A dictionary of key-value pairs, with typed values
 #[derive(Debug, PartialEq, Eq, Clone, Default)]
-#[cfg_attr(feature = "serialization", derive(serde::Serialize))]
+#[derive(serde::Serialize)]
 pub struct VariantDictionary(HashMap<String, VariantDictionaryValue>);
 
 impl Deref for VariantDictionary {
@@ -116,7 +113,6 @@ impl VariantDictionary {
         Ok(VariantDictionary(data))
     }
 
-    #[cfg(feature = "save_kdbx4")]
     pub(crate) fn dump(&self, writer: &mut dyn Write) -> Result<(), std::io::Error> {
         writer.write_u16::<LittleEndian>(VARIANT_DICTIONARY_VERSION)?;
 
@@ -196,7 +192,7 @@ impl VariantDictionary {
 
 /// A value in a VariantDictionary, which can be one of several types
 #[derive(Debug, PartialEq, Eq, Clone)]
-#[cfg_attr(feature = "serialization", derive(serde::Serialize))]
+#[derive(serde::Serialize)]
 #[non_exhaustive]
 pub enum VariantDictionaryValue {
     /// An unsigned 32-bit integer value
@@ -403,7 +399,6 @@ mod variant_dictionary_tests {
     }
 
     #[test]
-    #[cfg(feature = "save_kdbx4")]
     fn variant_dictionary() {
         let mut vd = VariantDictionary::new();
 
