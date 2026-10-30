@@ -1,12 +1,14 @@
-[target.wasm32-unknown-unknown]
-rustflags = ["--cfg", "getrandom_backend=\"wasm_js\""]
+[alias]
+rel = "build --release --target x86_64-unknown-linux-musl"
+inst = "install --target x86_64-unknown-linux-musl --path ."
+clip = "clippy --release --all-targets --all-features -- -D warnings"
+pub = "publish --target x86_64-unknown-linux-musl"
+up = "update --verbose"
+au = "audit --deny warnings"
+andr = "ndk build --release --target aarch64-linux-android"
+tst = "test --all-features"
+t = "test"
+c = "check"
 
-[build]
-# Enable CPU-specific optimizations.
-# This can greatly improve performance for AES key derivation.
-rustflags = "-C target-cpu=native"
-
-# Performance optimizations for ARMv8 are available since Rust 1.61
-# via the `aes_armv8` configuration option.
-[target.'cfg(target_arch = "aarch64")']
-rustflags = ["--cfg", "aes_armv8"]
+[target.x86_64-unknown-linux-musl]
+rustflags = [ "-Ctarget-feature=+crt-static", "-Ctarget-cpu=generic"]
