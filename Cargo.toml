@@ -55,7 +55,7 @@ base32 = "0.5"
 [dev-dependencies]
 rand = "0.10"
 tempfile = "3"
-test-with = "0.17"
+test-with = "0.16.3"
 
 [profile.release]
 opt-level = "z"
