@@ -1,6 +1,6 @@
 [![Crates.io](https://img.shields.io/crates/v/kplib.svg)](https://crates.io/crates/kplib)
 [![Documentation](https://docs.rs/kplib/badge.svg)](https://docs.rs/kplib/)
-[![Build Status](https://github.com/pepa65/keepass-rs/actions/workflows/merge.yml/badge.svg?branch=new)](https://github.com/pepa65/keepass-rs/actions/)
+[![Build Status](https://github.com/pepa65/keepass-rs/actions/workflows/ci.yml/badge.svg?branch=new)](https://github.com/pepa65/keepass-rs/actions/)
 [![dependency status](https://deps.rs/crate/kplib/latest/status.svg)](https://deps.rs/crate/kplib)
 [![License file](https://img.shields.io/github/license/pepa65/keepass-rs)](https://github.com/pepa65/keepass-rs/blob/master/LICENSE)
 # kplib v0.18.3
