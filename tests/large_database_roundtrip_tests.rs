@@ -33,7 +33,7 @@ mod large_file_roundtrip_tests {
 
 		// Define database key.
 		let key = DatabaseKey::new().with_password(TEST_DATABASE_PASSWORD);
-		db.save(&mut File::create(TEST_DATABASE_FILE_NAME)?, key.clone())?;
+		db.save(&mut File::create(TEST_DATABASE_FILE_NAME)?, &key)?;
 
 		// Read the database that was written in the previous block.
 		let db = Database::open(&mut File::open(TEST_DATABASE_FILE_NAME)?, key)?;

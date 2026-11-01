@@ -21,7 +21,7 @@ fn fast_kdbx41_config() -> DatabaseConfig {
 
 fn save_then_open(db: &Database) -> Database {
 	let mut buf = Vec::new();
-	db.save(&mut buf, DatabaseKey::new().with_password(PASSWORD)).expect("save");
+	db.save(&mut buf, &DatabaseKey::new().with_password(PASSWORD)).expect("save");
 	Database::open(&mut buf.as_slice(), DatabaseKey::new().with_password(PASSWORD)).expect("open")
 }
 
