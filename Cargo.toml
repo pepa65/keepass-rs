@@ -1,13 +1,13 @@
 [package]
 name = "kplib"
-version = "0.18.1"
+version = "0.18.3"
 edition = "2024"
 rust-version = "1.89"
 description = "Hardened KDBX database file parser"
 keywords = ["keepass", "kdbx", "password", "tui", "password-manager"]
-categories = ["parser-implementations", "security", "library"]
-repository = "https://github.com/pepa65/keepass-rs"
-documentation = "https://docs.rs/keepass-rs"
+categories = ["parser-implementations", "security"]
+repository = "https://github.com/pepa65/keepass-rs/tree/new"
+documentation = "https://docs.rs/kplib"
 authors = ["Stefan Seemayer <stefan@seemayer.de>", "<github.com/pepa65>"]
 license = "MIT"
 readme = "README.md"
