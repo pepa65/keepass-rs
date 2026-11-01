@@ -90,6 +90,32 @@ impl Entry {
 		self.set(key, Value::unprotected(value));
 	}
 
+	/// Set an unprotected field only if its value or protection differs.
+	/// Returns true if the field was changed.
+	pub fn update_unprotected(&mut self, key: &str, value: &str) -> bool {
+		if self.fields.get(key).is_some_and(|current| {
+			!current.is_protected() && current.get() == value
+		}) {
+			return false;
+		}
+
+		self.set(key, Value::unprotected(value.to_owned()));
+		true
+	}
+
+	/// Set a protected field only if its value or protection differs.
+	/// Returns true if the field was changed.
+	pub fn update_protected(&mut self, key: &str, value: &str) -> bool {
+		if self.fields.get(key).is_some_and(|current| {
+			current.is_protected() && current.get() == value
+		}) {
+			return false;
+		}
+
+		self.set(key, Value::protected(value.to_owned()));
+		true
+	}
+
 	/// Set a field's protected value by name
 	pub fn set_protected(&mut self, key: impl Into<String>, value: impl Into<String>) {
 		self.set(key, Value::protected(value));
@@ -194,5 +220,28 @@ mod tests {
 	#[test]
 	fn entry_id_new_generates_distinct_ids() {
 		assert_ne!(EntryId::new(), EntryId::new());
+	}
+
+	#[test]
+	fn update_fields_only_when_changed() {
+		use super::Entry;
+		use crate::db::GroupId;
+
+		let mut entry = Entry::with_id(EntryId::new(), GroupId::new());
+
+		assert!(entry.update_protected("Password", "secret"));
+		assert!(!entry.update_protected("Password", "secret"));
+		assert!(entry.fields["Password"].is_protected());
+
+		assert!(entry.update_protected("Password", "new-secret"));
+		assert_eq!(entry.get("Password"), Some("new-secret"));
+
+		assert!(entry.update_unprotected("Password", "new-secret"));
+		assert!(!entry.fields["Password"].is_protected());
+
+		assert!(!entry.update_unprotected("Password", "new-secret"));
+
+		assert!(entry.update_protected("Password", "new-secret"));
+		assert!(entry.fields["Password"].is_protected());
 	}
 }

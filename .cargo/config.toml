@@ -7,7 +7,7 @@ up = "update --verbose"
 au = "audit --deny warnings"
 andr = "ndk build --release --target aarch64-linux-android"
 tst = "test --all-features"
-t = "test"
+t = "test --lib"
 c = "check"
 
 [target.x86_64-unknown-linux-musl]
