@@ -175,10 +175,7 @@ impl DatabaseKey {
 
 	/// Returns true if the database key is not associated with any key component.
 	pub fn is_empty(&self) -> bool {
-		if self.password.is_some() || self.keyfile.is_some() {
-			return false;
-		}
-		true
+		!(self.password.is_some() || self.keyfile.is_some())
 	}
 }
 

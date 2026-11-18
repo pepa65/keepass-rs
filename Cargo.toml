@@ -1,8 +1,8 @@
 [package]
 name = "kplib"
-version = "0.21.0"
+version = "0.22.0"
 edition = "2024"
-rust-version = "1.89"
+rust-version = "1.95"
 description = "Hardened KDBX database file parser"
 keywords = ["keepass", "kdbx", "password", "tui", "password-manager"]
 categories = ["parser-implementations", "security"]
@@ -26,13 +26,12 @@ serde = { version = "1",  features = ["derive"] }
 quick-xml = { version = "0.42", features = ["serialize"] }
 hex-literal = "1"
 secrecy = "0.10.3"
-jiff = { version = "0.2", default-features = false, features = ["std", "serde"] }
+jiff = { version = "1", default-features = false, features = ["std", "serde"] }
 
 # cryptography
 rust-argon2 = "3.0"
 sha2 = { version = "0.11", features = ["zeroize"] }
 aes = { version = "0.9", features = ["zeroize"] }
-block-modes = "0.9"
 hmac = { version = "0.13", features = ["zeroize"] }
 salsa20 = { version = "0.11", features = ["zeroize"] }
 chacha20 = { version = "0.10", features = ["zeroize"] }

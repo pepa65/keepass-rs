@@ -11,7 +11,7 @@ pub struct Times {
 impl Times {
 	/// Returns the current UTC time with second precision.
 	pub fn now() -> DateTime {
-		let now = jiff::Timestamp::now().to_zoned(jiff::tz::TimeZone::UTC).datetime();
+		let now = jiff::Timestamp::now().to_zoned_datetime(jiff::tz::TimeZone::UTC).datetime();
 		now.date().at(now.hour(), now.minute(), now.second(), 0)
 	}
 
