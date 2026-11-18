@@ -1,6 +1,6 @@
 [package]
 name = "kplib"
-version = "0.20.4"
+version = "0.21.0"
 edition = "2024"
 rust-version = "1.89"
 description = "Hardened KDBX database file parser"
@@ -26,7 +26,7 @@ serde = { version = "1",  features = ["derive"] }
 quick-xml = { version = "0.42", features = ["serialize"] }
 hex-literal = "1"
 secrecy = "0.10.3"
-chrono = { version = "0.4.23", default-features = false, features = ["serde", "clock", "std"] }
+jiff = { version = "0.2", default-features = false, features = ["std", "serde"] }
 
 # cryptography
 rust-argon2 = "3.0"

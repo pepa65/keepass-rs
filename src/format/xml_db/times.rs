@@ -43,7 +43,7 @@ impl From<&crate::db::Times> for Times {
 			creation_time: Some(modified.into()),
 			last_modification_time: Some(modified.into()),
 			last_access_time: Some(modified.into()),
-			expiry_time: chrono::DateTime::UNIX_EPOCH.naive_utc().into(),
+			expiry_time: jiff::civil::date(1970, 1, 1).at(0, 0, 0, 0).into(),
 			location_changed: Some(modified.into()),
 			expires: Some(false),
 			usage_count: Some(0),
@@ -71,7 +71,7 @@ mod tests {
 
 		assert_eq!(
 			times.last_modification_time.unwrap().time,
-			chrono::NaiveDateTime::parse_from_str("2023-10-06T12:34:56", "%Y-%m-%dT%H:%M:%S").unwrap()
+			"2023-10-06T12:34:56".parse::<jiff::civil::DateTime>().unwrap()
 		);
 	}
 }
