@@ -22,7 +22,7 @@ use super::HEADER_PUBLIC_CUSTOM_DATA;
 
 /// Dump a KeePass database using the key elements
 pub fn dump_kdbx4(db: &Database, db_key: &DatabaseKey, writer: &mut dyn Write) -> Result<(), DatabaseSaveError> {
-	if !matches!(db.config.version, DatabaseVersion::KDB4(1)) {
+	if !matches!(db.config.version, DatabaseVersion::KDB4(0 | 1)) {
 		return Err(DatabaseSaveError::UnsupportedVersion);
 	}
 
